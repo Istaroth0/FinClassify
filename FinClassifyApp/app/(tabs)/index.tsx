@@ -1,74 +1,59 @@
-import { Image, StyleSheet, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { NavigationProp } from '@react-navigation/native';
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+const AuthScreen = ({ navigation }: { navigation: NavigationProp<any> }) => {
+  const [isLogin, setIsLogin] = useState(true);
 
-export default function HomeScreen() {
+  const toggleAuthMode = () => {
+    setIsLogin(!isLogin);
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12'
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <View style={styles.container}>
+      <Text style={styles.title}>{isLogin ? 'Login here' : 'Create Account'}</Text>
+      <Text style={styles.subtitle}>
+        {isLogin ? 'Welcome back, you\'ve been missed!' : 'Create an account to manage your money smarter and celebrate every win.'}
+      </Text>
+
+      <TextInput style={styles.input} placeholder="Email" keyboardType="email-address" placeholderTextColor="#4F4F4F" />
+      <TextInput style={styles.input} placeholder="Password" secureTextEntry placeholderTextColor="#4F4F4F" />
+
+      {!isLogin && <TextInput style={styles.input} placeholder="Confirm Password" secureTextEntry placeholderTextColor="#4F4F4F" />}
+
+      {isLogin && <Text style={styles.forgotPassword}>Forgot your password?</Text>}
+
+      <TouchableOpacity style={styles.button}>
+        <Text style={styles.buttonText}>{isLogin ? 'Sign In' : 'Sign Up'}</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.toggleText} onPress={toggleAuthMode}>
+        {isLogin ? 'Create new account' : 'Already have an account? Log in'}
+      </Text>
+
+      <Text style={styles.orContinueText}>Or continue with</Text>
+
+      <View style={styles.socialIcons}>
+        <Image source={require('../../assets/images/facebook.png')} style={styles.icon} />
+        <Image source={require('../../assets/images/apple.png')} style={styles.icon} />
+        <Image source={require('../../assets/images/google (1).png')} style={styles.icon} />
+      </View>
+    </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#FFFFFF' },
+  title: { fontSize: 26, fontWeight: 'bold', color: '#B58900', marginBottom: 5 },
+  subtitle: { fontSize: 16, textAlign: 'center', color: '#333', marginBottom: 20 },
+  input: { width: '100%', padding: 12, borderWidth: 1, borderRadius: 10, marginBottom: 10, borderColor: '#4F4F4F', backgroundColor: '#F9F9F9' },
+  forgotPassword: { alignSelf: 'flex-end', color: '#0F730C', marginBottom: 10, fontSize: 14 },
+  button: { backgroundColor: '#B58900', padding: 15, borderRadius: 10, width: '100%', alignItems: 'center', shadowColor: '#B58900', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 5 },
+  buttonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  toggleText: { marginTop: 15, color: '#0F730C', fontSize: 14, fontWeight: 'bold' },
+  orContinueText: { marginTop: 20, fontSize: 14, color: '#333' },
+  socialIcons: { flexDirection: 'row', marginTop: 10 },
+  icon: { width: 24, height: 24, marginHorizontal: 8 },
 });
+
+export default AuthScreen;
