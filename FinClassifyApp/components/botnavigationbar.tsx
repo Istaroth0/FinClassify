@@ -1,30 +1,58 @@
 import React from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons'; // Make sure to install this: `expo install @expo/vector-icons`
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
-const BottomNavigationBar = () => {
-  return (
-    <View style={styles.container}>
-      <NavItem icon="reader-outline" label="Records" />
-      <NavItem icon="pie-chart-outline" label="Analysis" />
-      <NavItem icon="calculator-outline" label="Budgets" />
-      <NavItem icon="pricetag-outline" label="Categories" />
-      <NavItem icon="wallet-outline" label="Accounts" />
-    </View>
-  );
-};
+// Define the types for the NavItem component
+interface NavItemProps {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+}
 
-const NavItem: React.FC<{ icon: React.ComponentProps<typeof Ionicons>['name']; label: string }> = ({ icon, label }) => {
+const NavItem = ({ icon, label, onPress }: NavItemProps) => {
   return (
-    <TouchableOpacity style={styles.navItem} onPress={() => {
-        // Add your navigation logic here.  For example:
-        console.log(`Navigating to ${label}`);
-        // You might use a navigation library like React Navigation:
-        // navigation.navigate(label);
-    }}>
+    <TouchableOpacity style={styles.navItem} onPress={onPress}>
       <Ionicons name={icon} size={25} color="#2E8B57" />
       <Text style={styles.navLabel}>{label}</Text>
     </TouchableOpacity>
+  );
+};
+
+const BottomNavigationBar = () => {
+  const navigation = useNavigation();
+
+  // Define a type for the navigation functions
+  type NavigateFunction = (screenName: string) => void;
+
+  return (
+    <View style={styles.container}>
+      <NavItem
+        icon="reader-outline"
+        label="Records"
+        onPress={() => (navigation.navigate as NavigateFunction)('Records')}
+      />
+      <NavItem
+        icon="pie-chart-outline"
+        label="Analysis"
+        onPress={() => (navigation.navigate as NavigateFunction)('Analysis')}
+      />
+      <NavItem
+        icon="calculator-outline"
+        label="Budgets"
+        onPress={() => (navigation.navigate as NavigateFunction)('Budgets')}
+      />
+      <NavItem
+        icon="pricetag-outline"
+        label="Categories"
+        onPress={() => (navigation.navigate as NavigateFunction)('Categories')}
+      />
+      <NavItem
+        icon="wallet-outline"
+        label="Accounts"
+        onPress={() => (navigation.navigate as NavigateFunction)('Accounts')}
+      />
+    </View>
   );
 };
 
@@ -33,14 +61,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    backgroundColor: 'white', // Background color of the navigation bar
+    backgroundColor: 'white',
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#ddd', // Light border at the top
+    borderTopColor: '#ddd',
   },
   navItem: {
-    flex: 1, // Distribute items evenly
-    alignItems: 'center', // Center icon and text
+    flex: 1,
+    alignItems: 'center',
   },
   navLabel: {
     fontSize: 12,

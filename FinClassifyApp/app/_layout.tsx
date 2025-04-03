@@ -48,7 +48,7 @@ export default function RootLayout() {
           options={{ headerShown: false }}
         />{" "}
         {/* Added transactions */}
-        <Tabs.Screen name="+not-found" options={{ href: "not-found" }} />{" "}
+        <Tabs.Screen name="+not-found" options={{ href: "/+not-found" }} />{" "}
         {/* Added href */}
       </Tabs>
       <StatusBar style="auto" />
