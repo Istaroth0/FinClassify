@@ -84,46 +84,6 @@ const HomeScreen = () => {
             {/* Header */}
             <HeaderTopNav onMenuPress={() => setMenuVisible(true)} />
 
-            {/* Date and Stats Section */}
-            {/* REMOVE THIS ENTIRE VIEW */}
-            {/* <View style={styles.dateAndStatsContainer}>
-                <View style={styles.dateContainer}>
-                    <SelectDropdown
-                        data={years}
-                        onSelect={(selectedItem: number) => {
-                            setSelectedYear(selectedItem);
-                        }}
-                        buttonStyle={styles.dropdownButtonStyle}
-                        buttonTextStyle={styles.dropdownButtonTextStyle}
-                        defaultButtonText={selectedYear.toString()}
-                    />
-                    <SelectDropdown
-                        data={months}
-                        onSelect={(selectedItem: string) => {
-                            setSelectedMonth(selectedItem);
-                        }}
-                        buttonStyle={styles.dropdownButtonStyle}
-                        buttonTextStyle={styles.dropdownButtonTextStyle}
-                        defaultButtonText={selectedMonth}
-                    />
-                    <View style={styles.statsItem}>
-                        <Text style={styles.statText}>Expenses</Text>
-                        <Text style={styles.statValue}>₱ {expenses.toFixed(2)}</Text>
-                    </View>
-                    <View style={styles.statsItem}>
-                        <Text style={styles.statText}>Income</Text>
-                        <Text style={styles.statValue}>₱ {income.toFixed(2)}</Text>
-                    </View>
-                    <View style={styles.statsItem}>
-                        <Text style={styles.statText}>Total</Text>
-                        <Text style={styles.statValue}>₱ {total.toFixed(2)}</Text>
-                    </View>
-                </View>
-                <TouchableOpacity onPress={() => setFilterDropdownVisible(!isFilterDropdownVisible)}>
-                    <MaterialIcons name="tune" size={24} color="white" />
-                </TouchableOpacity>
-            </View> */}
-
             {/* Empty State Message */}
             <View style={styles.content}>
                 <Image source={require("../assets/images/!.png")} style={styles.image} />
