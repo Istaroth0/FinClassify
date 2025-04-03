@@ -1,9 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, Dimensions, FlatList } from 'react-native';
+import { Picker } from '@react-native-picker/picker';  // Corrected import
 import { Ionicons } from '@expo/vector-icons';
-import SelectDropdown from 'react-native-select-dropdown';
-//import DateTimePicker from '@react-native-community/datetimepicker';
-const { width, height } = Dimensions.get('window'); // Get screen height
 
 const Header = () => {
     const [selectedDate, setSelectedDate] = useState('2025 Mar');
