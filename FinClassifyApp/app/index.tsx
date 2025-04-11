@@ -25,7 +25,7 @@ const AuthScreen = () => {
     if (Email === "admin@gmail.com" && Password === "admin") {
       console.log("Successfully Logged in!");
       Alert.alert("Successfully Logged in!");
-      navigation.navigate("Homepage"); // Now this works!
+      navigation.navigate("record"); // Now this works!
     } else {
       console.log("Invalid Credentials!");
       Alert.alert("Invalid Credentials!");

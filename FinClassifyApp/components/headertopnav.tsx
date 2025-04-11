@@ -103,36 +103,41 @@ const Header = () => {
           </TouchableOpacity>
           <View style={styles.titleContainer}>
             <Text style={styles.title}>FinClassify</Text>
-            <View style={styles.dataContainer}>
-              <View style={styles.categoryItem}>
-                <Text style={styles.categoryLabel}>Expenses</Text>
-                <Text style={styles.categoryAmount}>₱ 0.00</Text>
-              </View>
-              <View style={styles.categoryItem}>
-                <Text style={styles.categoryLabel}>Income</Text>
-                <Text style={styles.categoryAmount}>₱ 0.00</Text>
-              </View>
-              <View style={styles.categoryItem}>
-                <Text style={styles.categoryLabel}>Total</Text>
-                <Text style={styles.categoryAmount}>₱ 0.00</Text>
-              </View>
-            </View>
           </View>
 
-          <TouchableOpacity style={styles.filterIcon}>
-            <Ionicons name="options-outline" size={20} color="white" />
-          </TouchableOpacity>
+          <View style={styles.rightIconsContainer}>
+            <TouchableOpacity style={styles.searchIcon}>
+              <Ionicons name="search-outline" size={20} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.headerBottom}>
-          <View style={styles.dateContainer}>
-            <TouchableOpacity
-              style={styles.dateSelector}
-              onPress={showDatePicker}
-            >
-              <Text style={styles.dateText}>{selectedDate}</Text>
-              <Ionicons name="chevron-down-outline" size={16} color="white" />
+          <View style={styles.dateAndFilterContainer}>
+            <View style={styles.dateContainer}>
+              <TouchableOpacity
+                style={styles.dateSelector}
+                onPress={showDatePicker}
+              >
+                <Text style={styles.dateText}>{selectedDate}</Text>
+                <Ionicons name="chevron-down-outline" size={16} color="white" />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={styles.volumeSliderIcon}>
+              <Ionicons name="options-outline" size={20} color="white" />
             </TouchableOpacity>
+          </View>
+        </View>
+        <View style={styles.dataContainer}>
+          <View style={styles.categoryHeader}>
+            <Text style={styles.categoryHeaderText}>Expenses</Text>
+            <Text style={styles.categoryHeaderText}>Income</Text>
+            <Text style={styles.categoryHeaderText}>Total</Text>
+          </View>
+          <View style={styles.categoryItem}>
+            <Text style={styles.categoryAmount}>₱ 0.00</Text>
+            <Text style={styles.categoryAmount}>₱ 0.00</Text>
+            <Text style={styles.categoryAmount}>₱ 0.00</Text>
           </View>
         </View>
       </View>
@@ -258,7 +263,6 @@ const styles = StyleSheet.create({
   titleContainer: {
     flexDirection: "column",
     alignItems: "center",
-    marginBottom: 5, // Added margin below "FinClassify"
   },
   iconContainer: {
     padding: 4,
@@ -285,15 +289,39 @@ const styles = StyleSheet.create({
     marginRight: 3,
     fontSize: 12,
   },
-  dataContainer: {
+  dateAndFilterContainer: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%", // Ensure it takes full width
+  },
+  dataContainer: {
+    flexDirection: "column",
+    alignItems: "flex-start",
     justifyContent: "center",
-    marginTop: 5,
+    marginTop: 10,
+    width: "100%",
+  },
+  categoryHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    paddingHorizontal: 30,
+  },
+  categoryHeaderText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "bold",
+    flex: 1,
+    textAlign: "center",
   },
   categoryItem: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     marginHorizontal: 3,
+    width: "100%",
+    paddingHorizontal: 30,
   },
   categoryLabel: {
     color: "white",
@@ -303,11 +331,22 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 12,
     fontWeight: "bold",
-    marginBottom: 5, // Added margin below Expenses, Income, Total
+    marginBottom: 5,
+    flex: 1,
+    textAlign: "center",
   },
-  filterIcon: {
+  rightIconsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  searchIcon: {
     padding: 4,
     zIndex: 2,
+  },
+  volumeSliderIcon: {
+    padding: 4,
+    zIndex: 2,
+    marginHorizontal: 2,
   },
   modalOverlay: {
     flex: 1,

@@ -32,7 +32,7 @@ const HomeScreen = () => {
   const [total, setTotal] = useState(0);
 
   const navigateToTransaction = () => {
-    navigation.navigate("record" as never);
+    navigation.navigate("transactions" as never);
   };
 
   const menuItems = [
@@ -125,11 +125,6 @@ const HomeScreen = () => {
           </Text>
         </View>
 
-        {/* Floating Action Button */}
-        <TouchableOpacity style={styles.fab} onPress={navigateToTransaction}>
-          <MaterialIcons name="add" size={28} color="white" />
-        </TouchableOpacity>
-
         {/* Bottom Navigation */}
 
         {/* Side Menu Modal */}
@@ -166,8 +161,12 @@ const HomeScreen = () => {
             {renderFilterItem("Annually")}
           </View>
         )}
+        {/* Floating Action Button */}
+        <TouchableOpacity style={styles.fab} onPress={navigateToTransaction}>
+          <MaterialIcons name="add" size={28} color="white" />
+        </TouchableOpacity>
       </View>
-      <BotNavigationBar />{" "}
+      <BotNavigationBar />
     </>
   );
 };
@@ -221,7 +220,7 @@ const styles = StyleSheet.create({
   noRecordText: { fontSize: 14, color: "#555", textAlign: "center" },
   fab: {
     position: "absolute",
-    bottom: 50,
+    bottom: 70,
     right: 20,
     backgroundColor: "#0F730C",
     width: 50,

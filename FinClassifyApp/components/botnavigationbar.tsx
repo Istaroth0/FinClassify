@@ -1,50 +1,81 @@
-import React from 'react';
-import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons'; // Make sure to install this: `expo install @expo/vector-icons`
+import React from "react";
+import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { Link } from "expo-router"; // Import Link, remove useNavigation
 
 const BottomNavigationBar = () => {
+  // Remove useNavigation and navigateTo functions
+  // const navigation = useNavigation();
+  // const navigateToRecord = () => { ... };
+  // ...
+
   return (
     <View style={styles.container}>
-      <NavItem icon="reader-outline" label="Records" />
-      <NavItem icon="pie-chart-outline" label="Analysis" />
-      <NavItem icon="calculator-outline" label="Budgets" />
-      <NavItem icon="pricetag-outline" label="Categories" />
-      <NavItem icon="wallet-outline" label="Accounts" />
+      {/* Use Link for navigation */}
+      {/* Make sure the href paths match your file structure in the 'app' directory */}
+      <Link href="../../record" asChild>
+        {/* asChild passes Link's props (like onPress) to NavItem */}
+        <NavItem icon="reader-outline" label="Records" />
+      </Link>
+
+      <Link href="../../analysis" asChild>
+        <NavItem icon="pie-chart-outline" label="Analysis" />
+      </Link>
+
+      <Link href="../../Budgets" asChild>
+        {/* Ensure 'Budgets.tsx' exists at app/Budgets.tsx */}
+        <NavItem icon="calculator-outline" label="Budgets" />
+      </Link>
+
+      <Link href="../../Accounts" asChild>
+        {/* Ensure 'Accounts.tsx' exists at app/Accounts.tsx */}
+        <NavItem icon="wallet-outline" label="Accounts" />
+      </Link>
     </View>
   );
 };
 
-const NavItem: React.FC<{ icon: React.ComponentProps<typeof Ionicons>['name']; label: string }> = ({ icon, label }) => {
+// --- NavItem Component ---
+// Needs to accept props passed down from Link (like onPress)
+// Wrap content in TouchableOpacity to receive the press handling
+const NavItem: React.FC<{
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  // Add props that Link might pass down via asChild
+  onPress?: () => void;
+  accessibilityRole?: any;
+}> = ({ icon, label, onPress, accessibilityRole }) => {
   return (
-    <TouchableOpacity style={styles.navItem} onPress={() => {
-        // Add your navigation logic here.  For example:
-        console.log(`Navigating to ${label}`);
-        // You might use a navigation library like React Navigation:
-        // navigation.navigate(label);
-    }}>
+    // This TouchableOpacity receives the onPress from the parent Link
+    <TouchableOpacity
+      style={styles.navItem}
+      onPress={onPress} // Use the onPress passed from Link
+      accessibilityRole={accessibilityRole} // Pass accessibility role
+    >
       <Ionicons name={icon} size={25} color="#2E8B57" />
       <Text style={styles.navLabel}>{label}</Text>
     </TouchableOpacity>
   );
 };
 
+// --- Styles (remain the same) ---
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    backgroundColor: 'white', // Background color of the navigation bar
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    backgroundColor: "white",
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#ddd', // Light border at the top
+    borderTopColor: "#ddd",
   },
   navItem: {
-    flex: 1, // Distribute items evenly
-    alignItems: 'center', // Center icon and text
+    flex: 1,
+    alignItems: "center",
   },
   navLabel: {
     fontSize: 12,
-    color: '#2E8B57',
+    color: "#2E8B57",
     marginTop: 5,
   },
 });
