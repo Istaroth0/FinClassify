@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -6,24 +6,28 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
-} from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { MaterialCommunityIcons as IconType } from '@expo/vector-icons';
+} from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import type { MaterialCommunityIcons as IconType } from "@expo/vector-icons";
 
 const DEFAULT_ICONS: Array<{
   name: keyof typeof IconType.glyphMap;
   key: string;
 }> = [
-  { name: 'cash', key: 'cash' },
-  { name: 'credit-card', key: 'credit' },
-  { name: 'book-open', key: 'book' },
-  { name: 'airplane', key: 'airplane' },
+  { name: "cash", key: "cash" },
+  { name: "credit-card", key: "credit" },
+  { name: "book-open", key: "book" },
+  { name: "airplane", key: "airplane" },
 ];
 
 interface AddAccountModalProps {
   visible: boolean;
   onClose: () => void;
-  onSave: (account: { name: string; icon: string; description?: string }) => void;
+  onSave: (account: {
+    name: string;
+    icon: string;
+    description?: string;
+  }) => void;
 }
 
 export default function AddAccountModal({
@@ -32,8 +36,8 @@ export default function AddAccountModal({
   onSave,
 }: AddAccountModalProps) {
   const [selectedIcon, setSelectedIcon] = useState(DEFAULT_ICONS[0].name);
-  const [accountName, setAccountName] = useState('');
-  const [description, setDescription] = useState('');
+  const [accountName, setAccountName] = useState("");
+  const [description, setDescription] = useState("");
 
   const handleSave = () => {
     if (accountName.trim()) {
@@ -42,8 +46,8 @@ export default function AddAccountModal({
         icon: selectedIcon,
         description: description.trim() || undefined,
       });
-      setAccountName('');
-      setDescription('');
+      setAccountName("");
+      setDescription("");
       setSelectedIcon(DEFAULT_ICONS[0].name);
     }
   };
@@ -52,7 +56,7 @@ export default function AddAccountModal({
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
     >
       <View style={styles.modalContainer}>
@@ -122,32 +126,32 @@ export default function AddAccountModal({
 const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 10,
     padding: 20,
-    width: '90%',
+    width: "90%",
     maxWidth: 400,
   },
   title: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#006400',
+    fontWeight: "bold",
+    color: "#006400",
     marginBottom: 20,
-    textAlign: 'center',
+    textAlign: "center",
   },
   label: {
     fontSize: 16,
-    color: '#333',
+    color: "#333",
     marginBottom: 8,
   },
   iconGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginBottom: 20,
     paddingHorizontal: 20,
   },
@@ -155,18 +159,18 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#006400',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#006400",
+    justifyContent: "center",
+    alignItems: "center",
   },
   selectedIconButton: {
-    backgroundColor: '#004d00',
+    backgroundColor: "#004d00",
     borderWidth: 2,
-    borderColor: '#DAA520',
+    borderColor: "#DAA520",
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: "#E0E0E0",
     borderRadius: 8,
     padding: 12,
     marginBottom: 15,
@@ -174,11 +178,11 @@ const styles = StyleSheet.create({
   },
   descriptionInput: {
     height: 80,
-    textAlignVertical: 'top',
+    textAlignVertical: "top",
   },
   buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginTop: 20,
   },
   button: {
@@ -188,23 +192,23 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   cancelButton: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderWidth: 1,
-    borderColor: '#006400',
+    borderColor: "#006400",
   },
   saveButton: {
-    backgroundColor: '#DAA520',
+    backgroundColor: "#DAA520",
   },
   cancelButtonText: {
-    color: '#006400',
-    textAlign: 'center',
+    color: "#006400",
+    textAlign: "center",
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   saveButtonText: {
-    color: 'white',
-    textAlign: 'center',
+    color: "white",
+    textAlign: "center",
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: "500",
   },
-}); 
+});
