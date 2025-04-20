@@ -1,3 +1,4 @@
+// c:\Users\scubo\OneDrive\Documents\FC_proj\FinClassify\FinClassifyApp\app\record.tsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -5,12 +6,12 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator, // Added for loading state
-  Alert, // Added for error display
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import HeaderTopNav from "../components/headertopnav";
 import BotNavigationBar from "../components/botnavigationbar";
-import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons"; // Use MaterialCommunityIcons for saved icons
+import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import {
   getFirestore,
@@ -18,24 +19,26 @@ import {
   query,
   onSnapshot,
   orderBy,
-  Timestamp, // Import Timestamp type
+  Timestamp,
 } from "firebase/firestore";
-import { app } from "../app/firebase"; // Adjust path if needed
+import { app } from "../app/firebase";
 
 // Initialize Firestore
 const db = getFirestore(app);
 
-// Hardcoded User ID (as used in transactions.tsx)
+// Hardcoded User ID
 const HARDCODED_USER_ID = "User";
 
-// Interface for Firestore transaction data
+// Interface for Firestore transaction data (Added accountId and accountName)
 interface Transaction {
-  id: string; // Firestore document ID
+  id: string;
   type: "Income" | "Expenses";
   categoryName: string;
-  categoryIcon: keyof typeof MaterialCommunityIcons.glyphMap; // Match the icon type saved
+  categoryIcon: keyof typeof MaterialCommunityIcons.glyphMap;
   amount: number;
-  timestamp: Timestamp; // Firestore Timestamp object
+  timestamp: Timestamp;
+  accountId: string; // Added
+  accountName?: string; // Added (optional, but good to have)
 }
 
 // Helper function to format Firestore Timestamp
@@ -47,12 +50,10 @@ const formatFirestoreTimestamp = (
   }
   try {
     const date = timestamp.toDate();
-    // Example format: Jan 24, Tuesday (Adjust options as needed)
     return date.toLocaleDateString(undefined, {
       month: "short",
       day: "numeric",
       weekday: "long",
-      // year: 'numeric', // Add if you want the year
     });
   } catch (e) {
     console.error("Error formatting timestamp:", e);
@@ -65,10 +66,9 @@ const HistoryScreen = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // const [headerTitle, setHeaderTitle] = useState("Records"); // Keep if needed elsewhere
 
   const navigateToTransaction = () => {
-    navigation.navigate("transactions" as never); // Navigate to the screen where transactions are added
+    navigation.navigate("transactions" as never);
   };
 
   useEffect(() => {
@@ -79,7 +79,6 @@ const HistoryScreen = () => {
     if (!userId) {
       setError("User not identified.");
       setLoading(false);
-      // Optionally navigate to login or show an alert
       return;
     }
 
@@ -89,7 +88,6 @@ const HistoryScreen = () => {
       userId,
       "transactions"
     );
-    // Query to order transactions by timestamp, newest first
     const q = query(transactionsCollectionRef, orderBy("timestamp", "desc"));
 
     const unsubscribe = onSnapshot(
@@ -98,14 +96,16 @@ const HistoryScreen = () => {
         const fetchedTransactions: Transaction[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Basic validation to ensure data structure matches expectations
+          // Updated validation to include accountId
           if (
             data &&
             typeof data.type === "string" &&
             typeof data.categoryName === "string" &&
             typeof data.categoryIcon === "string" &&
             typeof data.amount === "number" &&
-            data.timestamp instanceof Timestamp // Check if it's a Firestore Timestamp
+            data.timestamp instanceof Timestamp &&
+            typeof data.accountId === "string" // Check for accountId
+            // accountName is optional, so no strict check needed unless required
           ) {
             fetchedTransactions.push({
               id: doc.id,
@@ -115,10 +115,12 @@ const HistoryScreen = () => {
                 data.categoryIcon as keyof typeof MaterialCommunityIcons.glyphMap,
               amount: data.amount,
               timestamp: data.timestamp,
+              accountId: data.accountId, // Fetch accountId
+              accountName: data.accountName || "Unknown Account", // Fetch accountName or use default
             });
           } else {
             console.warn(
-              `Invalid transaction data found for doc ID: ${doc.id}`
+              `Invalid or incomplete transaction data found for doc ID: ${doc.id}`
             );
           }
         });
@@ -137,9 +139,8 @@ const HistoryScreen = () => {
       }
     );
 
-    // Cleanup listener on component unmount
     return () => unsubscribe();
-  }, []); // Empty dependency array ensures this runs once on mount
+  }, []);
 
   const renderContent = () => {
     if (loading) {
@@ -188,9 +189,8 @@ const HistoryScreen = () => {
               <Text style={styles.dateHeader}>{date}</Text>
               {dailyTransactions.map((transaction) => (
                 <View key={transaction.id} style={styles.transactionItem}>
-                  {/* Removed the date text from here as it's now a header */}
                   <View style={styles.transactionDetails}>
-                    <MaterialCommunityIcons // Use MaterialCommunityIcons
+                    <MaterialCommunityIcons
                       name={transaction.categoryIcon}
                       size={24}
                       color="#006400"
@@ -200,15 +200,19 @@ const HistoryScreen = () => {
                       <Text style={styles.categoryName}>
                         {transaction.categoryName}
                       </Text>
+                      {/* Display Account Name */}
+                      <Text style={styles.accountNameText}>
+                        {transaction.accountName}
+                      </Text>
                     </View>
                     <Text
                       style={
+                        // Only expenses are currently added, but keep logic for income
                         transaction.type === "Income"
                           ? styles.income
                           : styles.expense
                       }
                     >
-                      {/* Show + for income, - for expense */}
                       {transaction.type === "Income" ? "+" : "-"}₱
                       {Math.abs(transaction.amount).toFixed(2)}
                     </Text>
@@ -239,27 +243,26 @@ const HistoryScreen = () => {
 const styles = StyleSheet.create({
   fab: {
     position: "absolute",
-    bottom: 70, // Adjusted slightly higher if needed due to nav bar
+    bottom: 70,
     right: 20,
-    backgroundColor: "#0F730C", // Consistent FAB color
-    width: 56, // Standard FAB size
-    height: 56, // Standard FAB size
-    borderRadius: 28, // Half of width/height
+    backgroundColor: "#0F730C",
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: "center",
     alignItems: "center",
-    elevation: 6, // Android shadow
-    shadowColor: "#000", // iOS shadow
+    elevation: 6,
+    shadowColor: "#000",
     shadowOpacity: 0.3,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 4,
   },
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa", // Lighter background
+    backgroundColor: "#f8f9fa",
   },
   content: {
     flex: 1,
-    // Removed paddingHorizontal here, apply to dateGroup instead if needed
   },
   centered: {
     flex: 1,
@@ -270,7 +273,7 @@ const styles = StyleSheet.create({
   infoText: {
     marginTop: 10,
     fontSize: 16,
-    color: "#6c757d", // Softer text color
+    color: "#6c757d",
     textAlign: "center",
   },
   errorText: {
@@ -278,21 +281,20 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   dateGroup: {
-    marginBottom: 15, // Space between date groups
-    paddingHorizontal: 15, // Add horizontal padding here
+    marginBottom: 15,
+    paddingHorizontal: 15,
   },
   dateHeader: {
     fontSize: 14,
-    color: "#495057", // Darker gray for date header
+    color: "#495057",
     marginBottom: 10,
-    marginTop: 5, // Add some top margin
+    marginTop: 5,
     fontWeight: "bold",
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   transactionItem: {
-    marginBottom: 10, // Space between items within a date group
-    // Removed borderBottom here, separation is clearer with background cards
+    marginBottom: 10,
   },
   transactionDetails: {
     flexDirection: "row",
@@ -311,24 +313,30 @@ const styles = StyleSheet.create({
     marginRight: 15,
   },
   textContainer: {
-    flex: 1, // Allow category name to take available space
-    marginRight: 10, // Add space between category name and amount
+    flex: 1,
+    marginRight: 10,
   },
   categoryName: {
     fontSize: 16,
-    color: "#343a40", // Darker text for category
+    color: "#343a40",
+  },
+  accountNameText: {
+    // Style for the account name
+    fontSize: 13,
+    color: "#6c757d", // Softer color for account name
+    marginTop: 2,
   },
   expense: {
     fontSize: 16,
-    color: "#dc3545", // Standard red for expense
+    color: "#dc3545",
     fontWeight: "bold",
-    textAlign: "right", // Align amount to the right
+    textAlign: "right",
   },
   income: {
     fontSize: 16,
-    color: "#28a745", // Standard green for income
+    color: "#28a745",
     fontWeight: "bold",
-    textAlign: "right", // Align amount to the right
+    textAlign: "right",
   },
 });
 

@@ -1,34 +1,26 @@
+// c:\Users\scubo\OneDrive\Documents\FC_proj\FinClassify\FinClassifyApp\components\botnavigationbar.tsx
 import React from "react";
-import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet } from "react-native"; // Removed TouchableOpacity
 import { Ionicons } from "@expo/vector-icons";
-import { Link } from "expo-router"; // Import Link, remove useNavigation
+import { Link } from "expo-router"; // Import Link
 
 const BottomNavigationBar = () => {
-  // Remove useNavigation and navigateTo functions
-  // const navigation = useNavigation();
-  // const navigateToRecord = () => { ... };
-  // ...
-
   return (
     <View style={styles.container}>
-      {/* Use Link for navigation */}
-      {/* Make sure the href paths match your file structure in the 'app' directory */}
-      <Link href="../../record" asChild>
-        {/* asChild passes Link's props (like onPress) to NavItem */}
+      {/* Link wraps NavItem, NO asChild */}
+      <Link href="../../record" style={styles.linkWrapper}>
         <NavItem icon="reader-outline" label="Records" />
       </Link>
 
-      <Link href="../../analysis" asChild>
+      <Link href="../../analysis" style={styles.linkWrapper}>
         <NavItem icon="pie-chart-outline" label="Analysis" />
       </Link>
 
-      <Link href="../../Budgets" asChild>
-        {/* Ensure 'Budgets.tsx' exists at app/Budgets.tsx */}
+      <Link href="../../Budgets" style={styles.linkWrapper}>
         <NavItem icon="calculator-outline" label="Budgets" />
       </Link>
 
-      <Link href="../../Accounts" asChild>
-        {/* Ensure 'Accounts.tsx' exists at app/Accounts.tsx */}
+      <Link href="../../Accounts" style={styles.linkWrapper}>
         <NavItem icon="wallet-outline" label="Accounts" />
       </Link>
     </View>
@@ -36,29 +28,22 @@ const BottomNavigationBar = () => {
 };
 
 // --- NavItem Component ---
-// Needs to accept props passed down from Link (like onPress)
-// Wrap content in TouchableOpacity to receive the press handling
+// Simplified: It no longer needs onPress or accessibilityRole from Link
 const NavItem: React.FC<{
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
-  // Add props that Link might pass down via asChild
-  onPress?: () => void;
-  accessibilityRole?: any;
-}> = ({ icon, label, onPress, accessibilityRole }) => {
+}> = ({ icon, label }) => {
   return (
-    // This TouchableOpacity receives the onPress from the parent Link
-    <TouchableOpacity
-      style={styles.navItem}
-      onPress={onPress} // Use the onPress passed from Link
-      accessibilityRole={accessibilityRole} // Pass accessibility role
-    >
+    // This View is just for layout/styling now
+    // The press handling is done by the parent Link
+    <View style={styles.navItemContent}>
       <Ionicons name={icon} size={25} color="#2E8B57" />
       <Text style={styles.navLabel}>{label}</Text>
-    </TouchableOpacity>
+    </View>
   );
 };
 
-// --- Styles (remain the same) ---
+// --- Styles ---
 const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
@@ -69,14 +54,20 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#ddd",
   },
-  navItem: {
-    flex: 1,
-    alignItems: "center",
+  linkWrapper: {
+    justifyContent: "center", // Center the NavItem content vertically
+    alignItems: "center", // Center the NavItem content horizontally
+    textDecorationLine: "none", // Remove underline on web
+  },
+  navItemContent: {
+    // Styles for the content inside the link (icon and text)
+    alignItems: "center", // Center icon and text horizontally
+    // Removed paddingVertical
   },
   navLabel: {
     fontSize: 12,
     color: "#2E8B57",
-    marginTop: 5,
+    marginTop: 4, // Slightly reduced margin
   },
 });
 

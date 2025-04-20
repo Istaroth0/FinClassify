@@ -1,3 +1,4 @@
+// c:\Users\scubo\OneDrive\Documents\FC_proj\FinClassify\FinClassifyApp\app\transactions.tsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -8,31 +9,36 @@ import {
   Modal,
   TextInput,
   Alert,
-  // ActivityIndicator removed as we are hardcoding the user
+  ActivityIndicator,
+  Image,
+  ImageSourcePropType,
 } from "react-native";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import { Stack, useNavigation } from "expo-router";
+// Re-import AddIncomeCategoryModal
 import AddIncomeCategoryModal from "../components/AddIncomeModal";
 import AddExpenseCategoryModal from "../components/AddExpenseModal";
 import {
   getFirestore,
   collection,
   addDoc,
+  doc,
+  runTransaction,
   serverTimestamp,
   onSnapshot,
   query,
-  doc,
+  orderBy,
+  Timestamp,
 } from "firebase/firestore";
-// Auth imports removed
 import { app } from "../app/firebase";
 
 // Initialize Firestore
 const db = getFirestore(app);
-// Auth initialization removed
 
 // Hardcoded User ID
 const HARDCODED_USER_ID = "User";
 
+// --- Interfaces ---
 interface Category {
   id: string;
   name: string;
@@ -41,7 +47,34 @@ interface Category {
   isDefault?: boolean;
 }
 
-// --- Initial Categories (remain the same) ---
+interface Account {
+  id: string;
+  title: string;
+  iconName: string;
+}
+
+// --- Account Icon Data ---
+interface AccountImageOption {
+  id: string;
+  source: ImageSourcePropType;
+  name: string;
+}
+const CardsSource = require("../assets/CAImages/Cards.png");
+const MoneySource = require("../assets/CAImages/Money.png");
+const PiggybankSource = require("../assets/CAImages/Piggybank.png");
+const StoreSource = require("../assets/CAImages/Store.png");
+const WalletSource = require("../assets/CAImages/Wallet.png");
+
+const accountIconOptions: AccountImageOption[] = [
+  { id: "1", source: CardsSource, name: "Cards" },
+  { id: "2", source: MoneySource, name: "Money" },
+  { id: "3", source: PiggybankSource, name: "Piggybank" },
+  { id: "4", source: StoreSource, name: "Store" },
+  { id: "5", source: WalletSource, name: "Wallet" },
+];
+
+// --- Initial Categories ---
+// Re-add initialIncomeCategories
 const initialIncomeCategories: Category[] = [
   {
     id: "inc1",
@@ -173,14 +206,24 @@ const initialExpenseCategories: Category[] = [
     isDefault: true,
   },
 ];
-// --- End Initial Categories ---
+
+// --- Helper function to get ImageSourcePropType from icon name ---
+const getIconSourceFromName = (
+  iconName: string | undefined
+): ImageSourcePropType => {
+  const foundOption = accountIconOptions.find(
+    (option) => option.name === iconName
+  );
+  return foundOption ? foundOption.source : WalletSource; // Default to Wallet
+};
 
 export default function TransactionScreen() {
   const navigation = useNavigation();
-  // Removed currentUser and isLoadingAuth states
+  // Re-introduce transactionType state, default to Expenses
   const [transactionType, setTransactionType] = useState<"Expenses" | "Income">(
-    "Income"
+    "Expenses"
   );
+  // Re-introduce incomeCategories state
   const [incomeCategories, setIncomeCategories] = useState<Category[]>(
     initialIncomeCategories
   );
@@ -194,32 +237,35 @@ export default function TransactionScreen() {
     useState<Category | null>(null);
   const [amount, setAmount] = useState("");
 
-  // --- Fetch Categories from Firestore (using hardcoded userId) ---
-  useEffect(() => {
-    const userId = HARDCODED_USER_ID; // Use hardcoded ID
+  // --- State for Accounts ---
+  const [accountsList, setAccountsList] = useState<Account[]>([]);
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
+  const [errorAccounts, setErrorAccounts] = useState<string | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
+    null
+  );
 
-    // --- Fetch Income Categories ---
+  // --- Fetch Categories from Firestore ---
+  useEffect(() => {
+    const userId = HARDCODED_USER_ID;
+
+    // Fetch Income Categories
     const incomeCollectionRef = collection(db, "Accounts", userId, "Income");
-    const incomeQuery = query(incomeCollectionRef);
+    const incomeQuery = query(incomeCollectionRef, orderBy("name"));
     const unsubscribeIncome = onSnapshot(
       incomeQuery,
       (querySnapshot) => {
         const fetchedIncomeCategories: Category[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Ensure fetched data has a name before adding
           if (data && typeof data.name === "string") {
             fetchedIncomeCategories.push({
               id: doc.id,
               name: data.name,
-              icon: data.icon || "help-circle-outline", // Default icon
+              icon: data.icon || "help-circle-outline",
               description: data.description,
               isDefault: false,
             });
-          } else {
-            console.warn(
-              `Fetched income category document ${doc.id} is missing a name.`
-            );
           }
         });
         const initialNames = new Set(
@@ -227,52 +273,35 @@ export default function TransactionScreen() {
         );
         const combinedIncome = [
           ...initialIncomeCategories.filter(
-            (cat) => cat.name && !initialNames.has(cat.name) // Ensure initial has name
+            (cat) => cat.name && !initialNames.has(cat.name)
           ),
           ...fetchedIncomeCategories,
         ];
-        // --- Safely sort combined list ---
-        combinedIncome.sort((a, b) => {
-          const nameA = a.name || ""; // Default to empty string if name is missing
-          const nameB = b.name || ""; // Default to empty string if name is missing
-          return nameA.localeCompare(nameB);
-        });
         setIncomeCategories(combinedIncome);
       },
       (error) => {
         console.error("Error fetching income categories: ", error);
-        if (error.code === "permission-denied") {
-          Alert.alert(
-            "Permission Error",
-            "You don't have permission to read income categories."
-          );
-        }
         setIncomeCategories(initialIncomeCategories); // Fallback
       }
     );
 
-    // --- Fetch Expense Categories ---
+    // Fetch Expense Categories
     const expenseCollectionRef = collection(db, "Accounts", userId, "Expenses");
-    const expenseQuery = query(expenseCollectionRef);
+    const expenseQuery = query(expenseCollectionRef, orderBy("name"));
     const unsubscribeExpenses = onSnapshot(
       expenseQuery,
       (querySnapshot) => {
         const fetchedExpenseCategories: Category[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Ensure fetched data has a name before adding
           if (data && typeof data.name === "string") {
             fetchedExpenseCategories.push({
               id: doc.id,
               name: data.name,
-              icon: data.icon || "help-circle-outline", // Default icon
+              icon: data.icon || "help-circle-outline",
               description: data.description,
               isDefault: false,
             });
-          } else {
-            console.warn(
-              `Fetched expense category document ${doc.id} is missing a name.`
-            );
           }
         });
         const initialExpenseNames = new Set(
@@ -280,53 +309,90 @@ export default function TransactionScreen() {
         );
         const combinedExpenses = [
           ...initialExpenseCategories.filter(
-            (cat) => cat.name && !initialExpenseNames.has(cat.name) // Ensure initial has name
+            (cat) => cat.name && !initialExpenseNames.has(cat.name)
           ),
           ...fetchedExpenseCategories,
         ];
-        // --- Safely sort combined list ---
-        combinedExpenses.sort((a, b) => {
-          const nameA = a.name || ""; // Default to empty string
-          const nameB = b.name || ""; // Default to empty string
-          return nameA.localeCompare(nameB);
-        });
         setExpenseCategories(combinedExpenses);
       },
       (error) => {
         console.error("Error fetching expense categories: ", error);
-        if (error.code === "permission-denied") {
-          Alert.alert(
-            "Permission Error",
-            "You don't have permission to read expense categories."
-          );
-        }
         setExpenseCategories(initialExpenseCategories); // Fallback
       }
     );
 
     // Cleanup Firestore listeners
     return () => {
-      unsubscribeIncome();
+      unsubscribeIncome(); // Unsubscribe income listener
       unsubscribeExpenses();
     };
-  }, []); // Empty dependency array, runs once
+  }, []);
 
-  // --- handleAddCategory (remains the same logic) ---
+  // --- Fetch Accounts ---
+  useEffect(() => {
+    setIsLoadingAccounts(true);
+    setErrorAccounts(null);
+    const userId = HARDCODED_USER_ID;
+
+    const accountsCollectionRef = collection(
+      db,
+      "Accounts",
+      userId,
+      "accounts"
+    );
+    const q = query(accountsCollectionRef, orderBy("title"));
+
+    const unsubscribeAccounts = onSnapshot(
+      q,
+      (querySnapshot) => {
+        const fetchedAccounts: Account[] = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          if (
+            data &&
+            typeof data.title === "string" &&
+            typeof data.iconName === "string"
+          ) {
+            fetchedAccounts.push({
+              id: doc.id,
+              title: data.title,
+              iconName: data.iconName,
+            });
+          } else {
+            console.warn(`Invalid account data found for doc ID: ${doc.id}`);
+          }
+        });
+        setAccountsList(fetchedAccounts);
+        if (!selectedAccountId && fetchedAccounts.length > 0) {
+          setSelectedAccountId(fetchedAccounts[0].id);
+        }
+        setIsLoadingAccounts(false);
+      },
+      (err) => {
+        console.error("Error fetching accounts: ", err);
+        setErrorAccounts("Failed to load accounts.");
+        setIsLoadingAccounts(false);
+      }
+    );
+
+    return () => unsubscribeAccounts();
+  }, []);
+
+  // --- handleAddCategory ---
   const handleAddCategory = (newCategoryData: {
     name: string;
     icon: string;
     description?: string | null;
   }) => {
-    console.log("Category saved to Firestore by modal, closing modal.");
     setIsAddCategoryModalVisible(false);
   };
 
+  // Update currentCategories based on transactionType
   const currentCategories =
     transactionType === "Expenses" ? expenseCategories : incomeCategories;
 
   // --- Handlers for Amount Input Modal ---
   const handleCategoryPress = (category: Category) => {
-    // Removed currentUser check
     setSelectedCategoryForAmount(category);
     setAmount("");
     setIsAmountModalVisible(true);
@@ -338,12 +404,13 @@ export default function TransactionScreen() {
     setAmount("");
   };
 
-  // --- Updated handleSaveAmount to use hardcoded userId ---
+  // --- handleSaveAmount (Updated for Income/Expense Balance Update) ---
   const handleSaveAmount = async () => {
-    const userId = HARDCODED_USER_ID; // Use hardcoded ID
+    const userId = HARDCODED_USER_ID;
+    const transactionAmount = parseFloat(amount); // Use a clear variable name
 
-    const parsedAmount = parseFloat(amount);
-    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+    // --- Input Validations ---
+    if (!amount || isNaN(transactionAmount) || transactionAmount <= 0) {
       Alert.alert("Invalid Amount", "Please enter a valid positive amount.");
       return;
     }
@@ -351,67 +418,105 @@ export default function TransactionScreen() {
       Alert.alert("Error", "No category selected.");
       return;
     }
+    if (!selectedAccountId) {
+      Alert.alert("Account Required", "Please select an account.");
+      return;
+    }
 
-    const transactionData = {
-      type: transactionType,
+    // --- Prepare Data ---
+    const selectedAccountInfo = accountsList.find(
+      (acc) => acc.id === selectedAccountId
+    );
+    const accountName = selectedAccountInfo
+      ? selectedAccountInfo.title
+      : "Unknown Account";
+
+    const newTransactionData = {
+      type: transactionType, // Use the state variable
       categoryName: selectedCategoryForAmount.name,
       categoryIcon: selectedCategoryForAmount.icon,
-      amount: parsedAmount,
+      amount: transactionAmount,
+      accountId: selectedAccountId,
+      accountName: accountName,
       timestamp: serverTimestamp(),
     };
 
+    // --- Firestore Transaction ---
     try {
-      const transactionsCollectionRef = collection(
-        db,
-        "Accounts",
-        userId,
-        "transactions"
-      );
-      const docRef = await addDoc(transactionsCollectionRef, transactionData);
-      console.log("Transaction saved with ID: ", docRef.id);
+      await runTransaction(db, async (transaction) => {
+        // 1. Define references
+        const accountDocRef = doc(
+          db,
+          "Accounts",
+          userId,
+          "accounts",
+          selectedAccountId
+        );
+        const newTransactionRef = doc(
+          collection(db, "Accounts", userId, "transactions")
+        );
 
+        // 2. Read the current account balance
+        const accountDoc = await transaction.get(accountDocRef);
+        if (!accountDoc.exists()) {
+          throw new Error("Account document does not exist!");
+        }
+
+        const currentBalance = accountDoc.data()?.balance ?? 0;
+
+        // 3. Calculate the new balance based on transaction type
+        let newBalance;
+        if (transactionType === "Income") {
+          newBalance = currentBalance + transactionAmount; // Add income
+        } else {
+          // transactionType === "Expenses"
+          newBalance = currentBalance - transactionAmount; // Subtract expense
+        }
+
+        // 4. Perform writes
+        transaction.update(accountDocRef, { balance: newBalance });
+        transaction.set(newTransactionRef, newTransactionData);
+      });
+
+      // --- Success ---
+      console.log("Transaction successfully committed!");
       Alert.alert(
-        "Transaction Saved",
-        `Type: ${transactionType}\nCategory: ${
+        `Transaction Saved (${transactionType})`, // Dynamic title
+        `Category: ${
           selectedCategoryForAmount.name
-        }\nAmount: ₱${parsedAmount.toFixed(2)}`
+        }\nAmount: ₱${transactionAmount.toFixed(2)}\nAccount: ${accountName}`
       );
       handleCloseAmountModal();
       if (navigation.canGoBack()) {
         navigation.goBack();
       }
     } catch (error: any) {
-      console.error("Error saving transaction to Firestore: ", error);
-      if (error.code === "permission-denied") {
-        Alert.alert(
-          "Permission Error",
-          "You don't have permission to save transactions."
-        );
-      } else {
-        Alert.alert(
-          "Save Error",
-          "Could not save the transaction. Please try again."
-        );
-      }
+      // --- Error Handling ---
+      console.error("Transaction failed: ", error);
+      Alert.alert(
+        "Save Error",
+        `Could not save the transaction and update balance. ${
+          error.message || "Please try again."
+        }`
+      );
     }
   };
 
-  // --- Header Button Handlers (remain the same) ---
+  // --- Header Button Handlers ---
   const handleCancel = () => {
     if (navigation.canGoBack()) {
       navigation.goBack();
-    } else {
-      console.log("Cancel pressed - cannot go back");
     }
   };
 
   const handleSaveHeader = () => {
-    console.log("Header Save pressed - this button might be removed");
+    Alert.alert(
+      "Save Action",
+      "Select a category and enter details in the modal to save."
+    );
   };
-  // --- End Other handlers ---
 
-  // Removed Loading State check
-
+  // --- JSX ---
   return (
     <View style={styles.container}>
       {/* --- Stack Screen Options --- */}
@@ -429,12 +534,11 @@ export default function TransactionScreen() {
             <TouchableOpacity
               style={styles.headerButton}
               onPress={handleSaveHeader}
-              // Removed disabled prop
             >
               <Text style={styles.headerButtonText}>Save</Text>
             </TouchableOpacity>
           ),
-          title: "Add Transaction",
+          title: "Add Transaction", // Keep generic title
           headerTitleAlign: "center",
           headerStyle: {
             backgroundColor: "#006400",
@@ -446,7 +550,7 @@ export default function TransactionScreen() {
         }}
       />
 
-      {/* --- Type Selector --- */}
+      {/* --- Type Selector Re-added --- */}
       <View style={styles.typeSelector}>
         <TouchableOpacity
           style={[
@@ -486,13 +590,11 @@ export default function TransactionScreen() {
       <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.sectionTitle}>Categories</Text>
         <View style={styles.categoriesGrid}>
-          {/* Map over the combined categories from state */}
           {currentCategories.map((category) => (
             <TouchableOpacity
               key={category.id}
               style={styles.categoryItem}
               onPress={() => handleCategoryPress(category)}
-              // Removed disabled prop
             >
               <View style={styles.categoryIcon}>
                 <MaterialCommunityIcons
@@ -506,14 +608,9 @@ export default function TransactionScreen() {
               <Text style={styles.categoryText}>{category.name}</Text>
             </TouchableOpacity>
           ))}
-          {/* Add New Category Button */}
           <TouchableOpacity
             style={styles.addNewButton}
-            onPress={() => {
-              // Removed currentUser check
-              setIsAddCategoryModalVisible(true);
-            }}
-            // Removed disabled prop
+            onPress={() => setIsAddCategoryModalVisible(true)}
           >
             <Text style={styles.addNewButtonText}>+ Add New Category</Text>
           </TouchableOpacity>
@@ -521,24 +618,23 @@ export default function TransactionScreen() {
       </ScrollView>
 
       {/* --- Conditionally Render Add Category Modals --- */}
-      {/* Pass hardcoded userId to the modals */}
       {transactionType === "Income" ? (
         <AddIncomeCategoryModal
           visible={isAddCategoryModalVisible}
           onClose={() => setIsAddCategoryModalVisible(false)}
           onSave={handleAddCategory}
-          userId={HARDCODED_USER_ID} // Pass hardcoded userId
+          userId={HARDCODED_USER_ID}
         />
       ) : (
         <AddExpenseCategoryModal
           visible={isAddCategoryModalVisible}
           onClose={() => setIsAddCategoryModalVisible(false)}
           onSave={handleAddCategory}
-          userId={HARDCODED_USER_ID} // Pass hardcoded userId
+          userId={HARDCODED_USER_ID}
         />
       )}
 
-      {/* --- Amount Input Modal (remain the same structure) --- */}
+      {/* --- Amount Input Modal --- */}
       <Modal
         visible={isAmountModalVisible}
         transparent
@@ -546,61 +642,116 @@ export default function TransactionScreen() {
         onRequestClose={handleCloseAmountModal}
       >
         <View style={styles.amountModalContainer}>
-          <View style={styles.amountModalContent}>
-            <Text style={styles.amountModalTitle}>
-              Enter {transactionType === "Income" ? "Income" : "Expense"} Amount
-            </Text>
+          <ScrollView contentContainerStyle={styles.amountModalScrollContent}>
+            <View style={styles.amountModalContent}>
+              {/* Dynamic Title */}
+              <Text style={styles.amountModalTitle}>
+                Enter {transactionType === "Income" ? "Income" : "Expense"}{" "}
+                Details
+              </Text>
 
-            {selectedCategoryForAmount && (
-              <View style={styles.categoryInfoContainer}>
-                <View style={styles.categoryIconSmall}>
-                  <MaterialCommunityIcons
-                    name={
-                      selectedCategoryForAmount.icon as keyof typeof MaterialCommunityIcons.glyphMap
-                    }
-                    size={20}
-                    color="white"
-                  />
-                </View>
-                <View style={styles.categoryDetails}>
-                  <Text style={styles.categoryInfoName}>
-                    {selectedCategoryForAmount.name}
-                  </Text>
-                  {selectedCategoryForAmount.description && (
-                    <Text style={styles.categoryInfoDesc}>
-                      {selectedCategoryForAmount.description}
+              {/* Category Info */}
+              {selectedCategoryForAmount && (
+                <View style={styles.categoryInfoContainer}>
+                  <View style={styles.categoryIconSmall}>
+                    <MaterialCommunityIcons
+                      name={
+                        selectedCategoryForAmount.icon as keyof typeof MaterialCommunityIcons.glyphMap
+                      }
+                      size={20}
+                      color="white"
+                    />
+                  </View>
+                  <View style={styles.categoryDetails}>
+                    <Text style={styles.categoryInfoName}>
+                      {selectedCategoryForAmount.name}
                     </Text>
-                  )}
+                    {selectedCategoryForAmount.description && (
+                      <Text style={styles.categoryInfoDesc}>
+                        {selectedCategoryForAmount.description}
+                      </Text>
+                    )}
+                  </View>
                 </View>
+              )}
+
+              {/* Amount Input */}
+              <Text style={styles.amountLabel}>Amount:</Text>
+              <TextInput
+                style={styles.amountInput}
+                placeholder="0.00"
+                keyboardType="numeric"
+                value={amount}
+                onChangeText={setAmount}
+                placeholderTextColor="#999"
+                autoFocus={true}
+              />
+
+              {/* --- Account Selection --- */}
+              <Text style={styles.amountLabel}>Account:</Text>
+              {isLoadingAccounts ? (
+                <ActivityIndicator
+                  color="#006400"
+                  style={styles.accountLoader}
+                />
+              ) : errorAccounts ? (
+                <Text style={styles.errorTextSmall}>{errorAccounts}</Text>
+              ) : accountsList.length === 0 ? (
+                <Text style={styles.infoTextSmall}>
+                  No accounts found. Please add an account first.
+                </Text>
+              ) : (
+                <View style={styles.accountSelectorContainer}>
+                  <ScrollView nestedScrollEnabled={true}>
+                    {accountsList.map((account) => (
+                      <TouchableOpacity
+                        key={account.id}
+                        style={[
+                          styles.accountSelectItem,
+                          selectedAccountId === account.id &&
+                            styles.accountSelectItemActive,
+                        ]}
+                        onPress={() => setSelectedAccountId(account.id)}
+                      >
+                        <Image
+                          source={getIconSourceFromName(account.iconName)}
+                          style={styles.accountSelectIconImage}
+                          resizeMode="contain"
+                        />
+                        <Text
+                          style={[
+                            styles.accountSelectText,
+                            selectedAccountId === account.id &&
+                              styles.accountSelectTextActive,
+                          ]}
+                        >
+                          {account.title}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+              {/* --- End Account Selection --- */}
+
+              {/* Modal Buttons */}
+              <View style={styles.amountModalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={handleCloseAmountModal}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={handleSaveAmount}
+                  disabled={isLoadingAccounts || accountsList.length === 0}
+                >
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </TouchableOpacity>
               </View>
-            )}
-
-            <Text style={styles.amountLabel}>Amount:</Text>
-            <TextInput
-              style={styles.amountInput}
-              placeholder="0.00"
-              keyboardType="numeric"
-              value={amount}
-              onChangeText={setAmount}
-              placeholderTextColor="#999"
-              autoFocus={true}
-            />
-
-            <View style={styles.amountModalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={handleCloseAmountModal}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton]}
-                onPress={handleSaveAmount}
-              >
-                <Text style={styles.saveButtonText}>Save</Text>
-              </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -609,7 +760,6 @@ export default function TransactionScreen() {
 
 // --- Styles ---
 const styles = StyleSheet.create({
-  // Removed loadingContainer and disabled styles
   container: {
     flex: 1,
     backgroundColor: "#f8f9fa",
@@ -623,6 +773,7 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "500",
   },
+  // Re-add Type Selector styles
   typeSelector: {
     flexDirection: "row",
     backgroundColor: "#fff",
@@ -650,6 +801,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 15,
+    // Remove paddingTop added previously
   },
   sectionTitle: {
     fontSize: 18,
@@ -710,6 +862,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "rgba(0, 0, 0, 0.6)",
   },
+  amountModalScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 20,
+  },
   amountModalContent: {
     backgroundColor: "white",
     borderRadius: 12,
@@ -727,13 +885,13 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "bold",
     color: "#006400",
-    marginBottom: 25,
+    marginBottom: 20,
     textAlign: "center",
   },
   categoryInfoContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 25,
+    marginBottom: 20,
     backgroundColor: "#f8f9fa",
     paddingVertical: 12,
     paddingHorizontal: 15,
@@ -767,7 +925,7 @@ const styles = StyleSheet.create({
   amountLabel: {
     fontSize: 16,
     color: "#495057",
-    marginBottom: 10,
+    marginBottom: 8,
     alignSelf: "flex-start",
     width: "100%",
     fontWeight: "500",
@@ -778,17 +936,67 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 15,
-    marginBottom: 30,
+    marginBottom: 20,
     fontSize: 20,
     width: "100%",
     textAlign: "right",
     backgroundColor: "#fff",
     color: "#212529",
   },
+  accountSelectorContainer: {
+    width: "100%",
+    marginBottom: 25,
+    maxHeight: 150,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  accountSelectItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    backgroundColor: "#fff",
+  },
+  accountSelectItemActive: {
+    backgroundColor: "#006400",
+  },
+  accountSelectIconImage: {
+    width: 24,
+    height: 24,
+    marginRight: 10,
+  },
+  accountSelectText: {
+    fontSize: 16,
+    color: "#333",
+  },
+  accountSelectTextActive: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  accountLoader: {
+    marginVertical: 20,
+  },
+  errorTextSmall: {
+    color: "red",
+    fontSize: 14,
+    textAlign: "center",
+    marginVertical: 15,
+  },
+  infoTextSmall: {
+    color: "#6c757d",
+    fontSize: 14,
+    textAlign: "center",
+    marginVertical: 15,
+  },
   amountModalButtons: {
     flexDirection: "row",
     justifyContent: "space-between",
     width: "100%",
+    marginTop: 10,
   },
   modalButton: {
     flex: 1,

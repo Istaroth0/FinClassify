@@ -10,7 +10,7 @@ import {
   Dimensions,
   FlatList,
   Platform,
-  ActivityIndicator, // Import ActivityIndicator
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -20,19 +20,27 @@ import {
   where,
   onSnapshot,
   Timestamp,
+  orderBy, // Import orderBy if fetching accounts ordered
 } from "firebase/firestore";
 import { app } from "../app/firebase"; // Adjust path if needed
 
 const { width, height } = Dimensions.get("window");
 const db = getFirestore(app);
-const HARDCODED_USER_ID = "User"; // Use the same hardcoded user ID
+const HARDCODED_USER_ID = "User";
 
-// Helper function to format currency
+// --- Interfaces ---
+// Interface for Account data needed for recurring income calculation
+interface AccountForIncome {
+  id: string;
+  incomeAmount?: number | null;
+  incomeFrequency?: "Daily" | "Weekly" | "Monthly" | null;
+}
+
+// --- Helper Functions (Keep formatCurrency and getMonthNumber) ---
 const formatCurrency = (amount: number): string => {
   return `₱ ${amount.toFixed(2)}`;
 };
 
-// Helper function to get month number (0-indexed)
 const getMonthNumber = (monthName: string): number => {
   const months = [
     "Jan",
@@ -50,6 +58,7 @@ const getMonthNumber = (monthName: string): number => {
   ];
   return months.indexOf(monthName);
 };
+// --- End Helper Functions ---
 
 const Header = () => {
   const currentYear = new Date().getFullYear();
@@ -74,7 +83,7 @@ const Header = () => {
   const [selectedMonth, setSelectedMonth] = useState(currentMonthName);
   const [selectedDate, setSelectedDate] = useState(
     `${selectedYear} ${selectedMonth}`
-  ); // Combined state
+  );
 
   const [isMenuVisible, setMenuVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width)).current;
@@ -82,19 +91,76 @@ const Header = () => {
   const [showMonthPicker, setShowMonthPicker] = useState(false);
 
   // State for totals and loading
-  const [totalIncome, setTotalIncome] = useState(0);
-  const [totalExpenses, setTotalExpenses] = useState(0);
+  const [totalIncome, setTotalIncome] = useState(0); // Will include recurring + transaction income
+  const [totalExpenses, setTotalExpenses] = useState(0); // From transactions only
   const [netTotal, setNetTotal] = useState(0);
   const [isLoadingTotals, setIsLoadingTotals] = useState(true);
   const [errorTotals, setErrorTotals] = useState<string | null>(null);
 
-  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i); // Adjust range as needed
+  // State for fetched accounts data
+  const [accountIncomeData, setAccountIncomeData] = useState<
+    AccountForIncome[]
+  >([]);
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(true); // Separate loading for accounts
 
-  // --- Fetch Totals from Firestore ---
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i);
+
+  // --- Fetch Accounts for Recurring Income ---
   useEffect(() => {
+    setIsLoadingAccounts(true);
+    const userId = HARDCODED_USER_ID;
+    const accountsCollectionRef = collection(
+      db,
+      "Accounts",
+      userId,
+      "accounts"
+    );
+    const q = query(accountsCollectionRef); // No specific order needed here
+
+    const unsubscribeAccounts = onSnapshot(
+      q,
+      (querySnapshot) => {
+        const fetchedAccounts: AccountForIncome[] = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          // Only need accounts with recurring income defined
+          if (data && data.incomeAmount && data.incomeFrequency) {
+            fetchedAccounts.push({
+              id: doc.id,
+              incomeAmount: data.incomeAmount,
+              incomeFrequency: data.incomeFrequency,
+            });
+          }
+        });
+        setAccountIncomeData(fetchedAccounts);
+        setIsLoadingAccounts(false);
+      },
+      (err) => {
+        console.error("Error fetching accounts for income calculation: ", err);
+        // Don't block totals calculation if accounts fail, just proceed without recurring income
+        setErrorTotals((prev) =>
+          prev
+            ? `${prev}\nFailed to load account income.`
+            : "Failed to load account income."
+        );
+        setIsLoadingAccounts(false);
+      }
+    );
+
+    return () => unsubscribeAccounts();
+  }, []); // Fetch accounts once on mount
+
+  // --- Fetch Totals & Calculate Combined Income ---
+  useEffect(() => {
+    // Don't proceed if accounts are still loading (or handle default state)
+    if (isLoadingAccounts) {
+      setIsLoadingTotals(true); // Keep totals loading until accounts are loaded
+      return;
+    }
+
     setIsLoadingTotals(true);
     setErrorTotals(null);
-    setTotalIncome(0); // Reset totals on change
+    setTotalIncome(0);
     setTotalExpenses(0);
     setNetTotal(0);
 
@@ -112,10 +178,35 @@ const Header = () => {
       return;
     }
 
-    // Calculate start and end timestamps for the selected month
-    const startDate = new Date(selectedYear, monthNumber, 1, 0, 0, 0);
-    const endDate = new Date(selectedYear, monthNumber + 1, 1, 0, 0, 0); // Start of the next month
+    // --- Calculate Estimated Recurring Income for the selected month ---
+    let estimatedRecurringIncome = 0;
+    const daysInMonth = new Date(selectedYear, monthNumber + 1, 0).getDate(); // Get days in the selected month
 
+    accountIncomeData.forEach((account) => {
+      const income = account.incomeAmount;
+      const freq = account.incomeFrequency;
+
+      if (income && income > 0 && freq) {
+        switch (freq) {
+          case "Daily":
+            estimatedRecurringIncome += income * daysInMonth; // Multiply daily by days in current month
+            break;
+          case "Weekly":
+            // Estimate weekly occurrences in the month (more accurate than fixed 4.33)
+            // This is still an approximation. A more precise way involves checking specific dates.
+            estimatedRecurringIncome += income * (daysInMonth / 7);
+            break;
+          case "Monthly":
+            estimatedRecurringIncome += income; // Add monthly directly
+            break;
+        }
+      }
+    });
+    // --- End Recurring Income Calculation ---
+
+    // --- Fetch Transactions for the selected month ---
+    const startDate = new Date(selectedYear, monthNumber, 1, 0, 0, 0);
+    const endDate = new Date(selectedYear, monthNumber + 1, 1, 0, 0, 0);
     const startTimestamp = Timestamp.fromDate(startDate);
     const endTimestamp = Timestamp.fromDate(endDate);
 
@@ -128,70 +219,81 @@ const Header = () => {
     const q = query(
       transactionsCollectionRef,
       where("timestamp", ">=", startTimestamp),
-      where("timestamp", "<", endTimestamp) // Use '<' for end date to exclude start of next month
+      where("timestamp", "<", endTimestamp)
     );
 
-    const unsubscribe = onSnapshot(
+    const unsubscribeTransactions = onSnapshot(
       q,
       (querySnapshot) => {
-        let currentIncome = 0;
-        let currentExpenses = 0;
+        let incomeFromTransactions = 0;
+        let expensesFromTransactions = 0;
 
         querySnapshot.forEach((doc) => {
           const data = doc.data();
           if (data && typeof data.amount === "number") {
             if (data.type === "Income") {
-              currentIncome += data.amount;
+              incomeFromTransactions += data.amount;
             } else if (data.type === "Expenses") {
-              // Assuming expenses are stored as positive numbers
-              currentExpenses += data.amount;
+              expensesFromTransactions += data.amount;
             }
           }
         });
 
-        setTotalIncome(currentIncome);
-        setTotalExpenses(currentExpenses);
-        setNetTotal(currentIncome - currentExpenses);
+        // Combine recurring income with transaction income
+        const combinedTotalIncome =
+          estimatedRecurringIncome + incomeFromTransactions;
+
+        setTotalIncome(combinedTotalIncome);
+        setTotalExpenses(expensesFromTransactions);
+        setNetTotal(combinedTotalIncome - expensesFromTransactions);
         setIsLoadingTotals(false);
       },
       (err) => {
-        console.error("Error fetching totals: ", err);
-        setErrorTotals("Failed to load totals.");
+        console.error("Error fetching transaction totals: ", err);
+        setErrorTotals((prev) =>
+          prev
+            ? `${prev}\nFailed to load transaction totals.`
+            : "Failed to load transaction totals."
+        );
         if (err.code === "permission-denied") {
-          setErrorTotals("Permission denied fetching totals.");
+          setErrorTotals((prev) =>
+            prev
+              ? `${prev}\nPermission denied fetching transactions.`
+              : "Permission denied fetching transactions."
+          );
         }
+        // Still set totals based on recurring income if transactions fail? Or show error?
+        // Let's show the error and potentially zero out transaction-based values
+        setTotalIncome(estimatedRecurringIncome); // Show at least recurring if transactions fail
+        setTotalExpenses(0);
+        setNetTotal(estimatedRecurringIncome);
         setIsLoadingTotals(false);
       }
     );
 
-    // Cleanup listener on component unmount or when dependencies change
-    return () => unsubscribe();
-  }, [selectedYear, selectedMonth]); // Re-run effect when year or month changes
+    // Cleanup listener
+    return () => unsubscribeTransactions();
+  }, [selectedYear, selectedMonth, accountIncomeData, isLoadingAccounts]); // Re-run when date changes OR account data is loaded/updated
 
-  // --- Date Picker Logic ---
-  const showDatePicker = () => {
-    setShowYearPicker(true);
-  };
-
+  // --- Date Picker Logic (Keep as is) ---
+  const showDatePicker = () => setShowYearPicker(true);
   const hideDatePicker = () => {
     setShowYearPicker(false);
     setShowMonthPicker(false);
   };
-
   const handleYearSelect = (year: number) => {
     setSelectedYear(year);
     setShowYearPicker(false);
     setShowMonthPicker(true);
   };
-
   const handleMonthSelect = (month: string) => {
     setSelectedMonth(month);
-    setSelectedDate(`${selectedYear} ${month}`); // Update combined state
+    setSelectedDate(`${selectedYear} ${month}`);
     setShowMonthPicker(false);
-    // hideDatePicker(); // Close both pickers
+    // hideDatePicker(); // Optionally close both pickers
   };
 
-  // --- Menu Animation ---
+  // --- Menu Animation (Keep as is) ---
   useEffect(() => {
     Animated.timing(slideAnim, {
       toValue: isMenuVisible ? 0 : -width,
@@ -200,13 +302,12 @@ const Header = () => {
     }).start();
   }, [isMenuVisible]);
 
-  // --- Menu Items ---
+  // --- Menu Items (Keep as is) ---
   const menuItems = [
     { id: "1", title: "Profile" },
     { id: "2", title: "Settings" },
-    { id: "3", title: "Logout" },
+    { id: "3", title: "Summary" },
   ];
-
   const renderMenuItem = ({
     item,
   }: {
@@ -217,16 +318,16 @@ const Header = () => {
       onPress={() => {
         setMenuVisible(false);
         console.log(`Menu item ${item.title} pressed`);
-        // Add navigation logic here if needed
       }}
     >
       <Text style={styles.menuItemText}>{item.title}</Text>
     </TouchableOpacity>
   );
 
-  // --- Render Totals ---
+  // --- Render Totals (Keep as is - uses state updated by useEffect) ---
   const renderTotals = () => {
-    if (isLoadingTotals) {
+    if (isLoadingTotals || isLoadingAccounts) {
+      // Check both loading states
       return (
         <ActivityIndicator
           size="small"
@@ -235,8 +336,15 @@ const Header = () => {
         />
       );
     }
+    // Display combined errors if any
     if (errorTotals) {
-      return <Text style={styles.errorText}>{errorTotals}</Text>;
+      // Split error message into lines for better readability if multiple errors occurred
+      const errorLines = errorTotals.split("\n").map((line, index) => (
+        <Text key={index} style={styles.errorText}>
+          {line}
+        </Text>
+      ));
+      return <View style={styles.errorContainer}>{errorLines}</View>;
     }
     return (
       <>
@@ -249,6 +357,7 @@ const Header = () => {
     );
   };
 
+  // --- JSX (Main structure remains the same) ---
   return (
     <View style={styles.container}>
       {/* Header Content */}
@@ -293,10 +402,7 @@ const Header = () => {
             <Text style={styles.categoryHeaderText}>Income</Text>
             <Text style={styles.categoryHeaderText}>Total</Text>
           </View>
-          <View style={styles.categoryItem}>
-            {/* Render totals or loading/error state */}
-            {renderTotals()}
-          </View>
+          <View style={styles.categoryItem}>{renderTotals()}</View>
         </View>
       </View>
       {/* End Header Content */}
@@ -318,7 +424,7 @@ const Header = () => {
               styles.menuContainer,
               { transform: [{ translateX: slideAnim }] },
             ]}
-            onStartShouldSetResponder={() => true}
+            onStartShouldSetResponder={() => true} // Prevent touches passing through
           >
             <FlatList
               data={menuItems}
@@ -349,7 +455,7 @@ const Header = () => {
                     style={[
                       styles.pickerItem,
                       selectedYear === parseInt(item, 10) &&
-                        styles.pickerItemSelected, // Highlight selected year
+                        styles.pickerItemSelected,
                     ]}
                     onPress={() => handleYearSelect(parseInt(item, 10))}
                   >
@@ -396,7 +502,7 @@ const Header = () => {
                   <TouchableOpacity
                     style={[
                       styles.pickerItem,
-                      selectedMonth === item && styles.pickerItemSelected, // Highlight selected month
+                      selectedMonth === item && styles.pickerItemSelected,
                     ]}
                     onPress={() => handleMonthSelect(item)}
                   >
@@ -494,8 +600,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.1)",
     borderRadius: 6,
     paddingVertical: 8,
-    minHeight: 50, // Ensure container has height for loader/error
-    justifyContent: "center", // Center loader/error vertically
+    minHeight: 50,
+    justifyContent: "center",
   },
   categoryHeader: {
     flexDirection: "row",
@@ -516,7 +622,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-around",
     width: "100%",
     paddingHorizontal: 10,
-    alignItems: "center", // Align items vertically
+    alignItems: "center",
   },
   categoryAmount: {
     color: "white",
@@ -526,14 +632,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   totalsLoader: {
-    // Style loader if needed, e.g., margin
     marginVertical: 5,
   },
-  errorText: {
-    color: "#ffdddd", // Light red for visibility on dark background
-    fontSize: 12,
-    textAlign: "center",
+  errorContainer: {
+    // Container for error messages
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 10,
+  },
+  errorText: {
+    color: "#ffdddd",
+    fontSize: 11, // Make error text slightly smaller
+    textAlign: "center",
   },
   rightIconsContainer: {
     flexDirection: "row",
@@ -546,7 +657,6 @@ const styles = StyleSheet.create({
   volumeSliderIcon: {
     padding: 4,
   },
-  // --- Modal Styles ---
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -572,7 +682,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#333",
   },
-  // --- Picker Modal Styles ---
   pickerModalContainer: {
     flex: 1,
     justifyContent: "center",
@@ -605,15 +714,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   pickerItemSelected: {
-    // Style for selected item background
-    backgroundColor: "#e0f2e0", // Light green background
+    backgroundColor: "#e0f2e0",
   },
   pickerText: {
     fontSize: 16,
     color: "#006400",
   },
   pickerTextSelected: {
-    // Style for selected item text
     fontWeight: "bold",
   },
   pickerButton: {
