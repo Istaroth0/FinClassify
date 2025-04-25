@@ -20,8 +20,10 @@ import {
   onSnapshot,
   orderBy,
   Timestamp,
+  where, // Import where
 } from "firebase/firestore";
 import { app } from "../app/firebase";
+import { useDateContext } from "./context/DateContext"; // Import the context hook
 
 // Initialize Firestore
 const db = getFirestore(app);
@@ -29,7 +31,7 @@ const db = getFirestore(app);
 // Hardcoded User ID
 const HARDCODED_USER_ID = "User";
 
-// Interface for Firestore transaction data (Added accountId and accountName)
+// Interface for Firestore transaction data
 interface Transaction {
   id: string;
   type: "Income" | "Expenses";
@@ -37,17 +39,15 @@ interface Transaction {
   categoryIcon: keyof typeof MaterialCommunityIcons.glyphMap;
   amount: number;
   timestamp: Timestamp;
-  accountId: string; // Added
-  accountName?: string; // Added (optional, but good to have)
+  accountId: string;
+  accountName?: string;
 }
 
-// Helper function to format Firestore Timestamp
+// Helper function to format Firestore Timestamp (Keep as is)
 const formatFirestoreTimestamp = (
   timestamp: Timestamp | null | undefined
 ): string => {
-  if (!timestamp) {
-    return "No date";
-  }
+  if (!timestamp) return "No date";
   try {
     const date = timestamp.toDate();
     return date.toLocaleDateString(undefined, {
@@ -61,8 +61,29 @@ const formatFirestoreTimestamp = (
   }
 };
 
+// Helper to get month number (0-indexed)
+const getMonthNumber = (monthName: string): number => {
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  return months.indexOf(monthName);
+};
+
 const HistoryScreen = () => {
   const navigation = useNavigation();
+  const { selectedYear, selectedMonth } = useDateContext(); // Get date from context
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,13 +103,38 @@ const HistoryScreen = () => {
       return;
     }
 
+    // --- Calculate date range based on context ---
+    const monthNumber = getMonthNumber(selectedMonth);
+    if (monthNumber < 0) {
+      setError("Invalid month selected in context.");
+      setLoading(false);
+      return;
+    }
+    const startDate = new Date(selectedYear, monthNumber, 1, 0, 0, 0);
+    const endDate = new Date(selectedYear, monthNumber + 1, 1, 0, 0, 0); // Start of the *next* month
+    const startTimestamp = Timestamp.fromDate(startDate);
+    const endTimestamp = Timestamp.fromDate(endDate);
+    // --- End date range calculation ---
+
     const transactionsCollectionRef = collection(
       db,
       "Accounts",
       userId,
       "transactions"
     );
-    const q = query(transactionsCollectionRef, orderBy("timestamp", "desc"));
+
+    // --- Update the query to filter by date ---
+    const q = query(
+      transactionsCollectionRef,
+      where("timestamp", ">=", startTimestamp), // Filter start date
+      where("timestamp", "<", endTimestamp), // Filter end date (exclusive)
+      orderBy("timestamp", "desc") // Keep ordering
+    );
+    // --- End query update ---
+
+    console.log(
+      `Fetching transactions from ${startDate.toISOString()} to ${endDate.toISOString()}`
+    ); // For debugging
 
     const unsubscribe = onSnapshot(
       q,
@@ -96,7 +142,7 @@ const HistoryScreen = () => {
         const fetchedTransactions: Transaction[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Updated validation to include accountId
+          // Validation (Keep as is)
           if (
             data &&
             typeof data.type === "string" &&
@@ -104,8 +150,7 @@ const HistoryScreen = () => {
             typeof data.categoryIcon === "string" &&
             typeof data.amount === "number" &&
             data.timestamp instanceof Timestamp &&
-            typeof data.accountId === "string" // Check for accountId
-            // accountName is optional, so no strict check needed unless required
+            typeof data.accountId === "string"
           ) {
             fetchedTransactions.push({
               id: doc.id,
@@ -115,13 +160,11 @@ const HistoryScreen = () => {
                 data.categoryIcon as keyof typeof MaterialCommunityIcons.glyphMap,
               amount: data.amount,
               timestamp: data.timestamp,
-              accountId: data.accountId, // Fetch accountId
-              accountName: data.accountName || "Unknown Account", // Fetch accountName or use default
+              accountId: data.accountId,
+              accountName: data.accountName || "Unknown Account",
             });
           } else {
-            console.warn(
-              `Invalid or incomplete transaction data found for doc ID: ${doc.id}`
-            );
+            console.warn(`Invalid transaction data found: ${doc.id}`, data);
           }
         });
         setTransactions(fetchedTransactions);
@@ -129,25 +172,32 @@ const HistoryScreen = () => {
       },
       (err) => {
         console.error("Error fetching transactions: ", err);
-        setError("Failed to load transaction history. Please try again.");
+        setError("Failed to load transaction history.");
         if (err.code === "permission-denied") {
+          setError("Permission denied. Check Firestore rules.");
+        } else if (err.code === "failed-precondition") {
           setError(
-            "Permission denied. Please check your Firestore security rules."
+            "Query requires an index. Check Firestore console for index creation link."
           );
+          // Log the specific error to the console for the developer
+          console.error("Firestore Index Required:", err.message);
         }
         setLoading(false);
       }
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [selectedYear, selectedMonth]); // Add selectedYear and selectedMonth as dependencies
 
+  // --- renderContent (Grouping and rendering logic remains the same) ---
   const renderContent = () => {
     if (loading) {
       return (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#006400" />
-          <Text style={styles.infoText}>Loading Records...</Text>
+          <Text style={styles.infoText}>
+            Loading Records for {selectedMonth} {selectedYear}...
+          </Text>
         </View>
       );
     }
@@ -157,6 +207,18 @@ const HistoryScreen = () => {
         <View style={styles.centered}>
           <MaterialIcons name="error-outline" size={40} color="red" />
           <Text style={[styles.infoText, styles.errorText]}>{error}</Text>
+          {error.includes("index") && (
+            <Text
+              style={[
+                styles.infoText,
+                styles.errorText,
+                { fontSize: 12, marginTop: 5 },
+              ]}
+            >
+              (You might need to create a composite index in your Firebase
+              Firestore settings)
+            </Text>
+          )}
         </View>
       );
     }
@@ -165,8 +227,13 @@ const HistoryScreen = () => {
       return (
         <View style={styles.centered}>
           <MaterialIcons name="hourglass-empty" size={40} color="#888" />
-          <Text style={styles.infoText}>No transactions recorded yet.</Text>
-          <Text style={styles.infoText}>Tap '+' to add one!</Text>
+          <Text style={styles.infoText}>No transactions recorded for</Text>
+          <Text style={styles.infoText}>
+            {selectedMonth} {selectedYear}.
+          </Text>
+          <Text style={[styles.infoText, { marginTop: 20 }]}>
+            Tap '+' to add one!
+          </Text>
         </View>
       );
     }
@@ -200,14 +267,12 @@ const HistoryScreen = () => {
                       <Text style={styles.categoryName}>
                         {transaction.categoryName}
                       </Text>
-                      {/* Display Account Name */}
                       <Text style={styles.accountNameText}>
                         {transaction.accountName}
                       </Text>
                     </View>
                     <Text
                       style={
-                        // Only expenses are currently added, but keep logic for income
                         transaction.type === "Income"
                           ? styles.income
                           : styles.expense
@@ -226,6 +291,7 @@ const HistoryScreen = () => {
     );
   };
 
+  // --- Main Return (remains the same) ---
   return (
     <>
       <View style={styles.container}>
@@ -240,6 +306,7 @@ const HistoryScreen = () => {
   );
 };
 
+// --- Styles (remain the same) ---
 const styles = StyleSheet.create({
   fab: {
     position: "absolute",
@@ -269,6 +336,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
+    paddingBottom: 80, // Add padding to avoid FAB overlap
   },
   infoText: {
     marginTop: 10,
@@ -321,9 +389,8 @@ const styles = StyleSheet.create({
     color: "#343a40",
   },
   accountNameText: {
-    // Style for the account name
     fontSize: 13,
-    color: "#6c757d", // Softer color for account name
+    color: "#6c757d",
     marginTop: 2,
   },
   expense: {
