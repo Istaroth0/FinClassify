@@ -1,5 +1,5 @@
 // c:\Users\scubo\OneDrive\Documents\FC_proj\FinClassify\FinClassifyApp\app\transactions.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react"; // Import useCallback
 import {
   View,
   Text,
@@ -12,10 +12,10 @@ import {
   ActivityIndicator,
   Image,
   ImageSourcePropType,
+  Keyboard, // Import Keyboard
 } from "react-native";
 import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import { Stack, useNavigation } from "expo-router";
-// Re-import AddIncomeCategoryModal
 import AddIncomeCategoryModal from "../components/AddIncomeModal";
 import AddExpenseCategoryModal from "../components/AddExpenseModal";
 import {
@@ -31,6 +31,9 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { app } from "../app/firebase";
+// Import debounce (optional but recommended for better performance)
+// You might need to install lodash: npm install lodash @types/lodash
+// import { debounce } from 'lodash';
 
 // Initialize Firestore
 const db = getFirestore(app);
@@ -74,8 +77,8 @@ const accountIconOptions: AccountImageOption[] = [
 ];
 
 // --- Initial Categories ---
-// Re-add initialIncomeCategories
 const initialIncomeCategories: Category[] = [
+  // ... (keep existing income categories)
   {
     id: "inc1",
     name: "Awards",
@@ -121,6 +124,7 @@ const initialIncomeCategories: Category[] = [
 ];
 
 const initialExpenseCategories: Category[] = [
+  // ... (keep existing expense categories)
   {
     id: "exp1",
     name: "Bills",
@@ -217,13 +221,68 @@ const getIconSourceFromName = (
   return foundOption ? foundOption.source : WalletSource; // Default to Wallet
 };
 
+// --- Simple Rule-Based Classification Function ---
+const suggestCategory = (
+  description: string,
+  categories: Category[]
+): Category | null => {
+  if (!description) return null;
+
+  const lowerDesc = description.toLowerCase();
+
+  // Define rules (expand these significantly in a real app)
+  const rules: { [keyword: string]: string } = {
+    coffee: "Foods",
+    starbucks: "Foods",
+    jollibee: "Foods",
+    mcdonalds: "Foods",
+    grocery: "Foods",
+    restaurant: "Foods",
+    gas: "Car",
+    shell: "Car",
+    petron: "Car",
+    parking: "Car",
+    netflix: "Bills",
+    spotify: "Bills",
+    utility: "Bills",
+    rent: "House",
+    mortgage: "House",
+    movie: "Leisure",
+    cinema: "Leisure",
+    shirt: "Clothing",
+    pants: "Clothing",
+    shoes: "Clothing",
+    amazon: "Shopping",
+    lazada: "Shopping",
+    shopee: "Shopping",
+    salary: "Salary", // Example for income
+    refund: "Refunds", // Example for income
+  };
+
+  for (const keyword in rules) {
+    if (lowerDesc.includes(keyword)) {
+      const categoryName = rules[keyword];
+      const foundCategory = categories.find(
+        (cat) => cat.name.toLowerCase() === categoryName.toLowerCase()
+      );
+      if (foundCategory) {
+        console.log(
+          `Suggested category '${foundCategory.name}' based on keyword '${keyword}'`
+        );
+        return foundCategory;
+      }
+    }
+  }
+
+  return null; // No suggestion found
+};
+// --- End Classification Function ---
+
 export default function TransactionScreen() {
   const navigation = useNavigation();
-  // Re-introduce transactionType state, default to Expenses
   const [transactionType, setTransactionType] = useState<"Expenses" | "Income">(
     "Expenses"
   );
-  // Re-introduce incomeCategories state
   const [incomeCategories, setIncomeCategories] = useState<Category[]>(
     initialIncomeCategories
   );
@@ -236,6 +295,10 @@ export default function TransactionScreen() {
   const [selectedCategoryForAmount, setSelectedCategoryForAmount] =
     useState<Category | null>(null);
   const [amount, setAmount] = useState("");
+  const [transactionDescription, setTransactionDescription] = useState(""); // <-- State for description
+  const [suggestedCategoryId, setSuggestedCategoryId] = useState<string | null>(
+    null
+  ); // <-- State for suggestion highlight
 
   // --- State for Accounts ---
   const [accountsList, setAccountsList] = useState<Account[]>([]);
@@ -245,8 +308,9 @@ export default function TransactionScreen() {
     null
   );
 
-  // --- Fetch Categories from Firestore ---
+  // --- Fetch Categories from Firestore (Keep existing useEffect) ---
   useEffect(() => {
+    // ... (existing category fetching logic remains the same) ...
     const userId = HARDCODED_USER_ID;
 
     // Fetch Income Categories
@@ -328,8 +392,9 @@ export default function TransactionScreen() {
     };
   }, []);
 
-  // --- Fetch Accounts ---
+  // --- Fetch Accounts (Keep existing useEffect) ---
   useEffect(() => {
+    // ... (existing account fetching logic remains the same) ...
     setIsLoadingAccounts(true);
     setErrorAccounts(null);
     const userId = HARDCODED_USER_ID;
@@ -378,13 +443,16 @@ export default function TransactionScreen() {
     return () => unsubscribeAccounts();
   }, []);
 
-  // --- handleAddCategory ---
+  // --- handleAddCategory (Keep existing) ---
   const handleAddCategory = (newCategoryData: {
     name: string;
     icon: string;
     description?: string | null;
   }) => {
     setIsAddCategoryModalVisible(false);
+    // Optionally, you could immediately add the category to the state
+    // to avoid waiting for the Firestore listener, but the listener
+    // is generally the more robust approach.
   };
 
   // Update currentCategories based on transactionType
@@ -395,6 +463,8 @@ export default function TransactionScreen() {
   const handleCategoryPress = (category: Category) => {
     setSelectedCategoryForAmount(category);
     setAmount("");
+    setTransactionDescription(""); // Clear description when category is manually selected
+    setSuggestedCategoryId(null); // Clear suggestion highlight
     setIsAmountModalVisible(true);
   };
 
@@ -402,12 +472,26 @@ export default function TransactionScreen() {
     setIsAmountModalVisible(false);
     setSelectedCategoryForAmount(null);
     setAmount("");
+    setTransactionDescription(""); // Clear description on close
+    setSuggestedCategoryId(null); // Clear suggestion highlight
   };
 
-  // --- handleSaveAmount (Updated for Income/Expense Balance Update) ---
+  // --- Function to handle suggestion logic ---
+  const handleDescriptionChange = (text: string) => {
+    setTransactionDescription(text);
+    // Simple trigger on change (debounce is better for performance)
+    const suggestion = suggestCategory(text, currentCategories);
+    setSuggestedCategoryId(suggestion ? suggestion.id : null);
+    // Optional: Automatically select if no category is chosen yet
+    // if (suggestion && !selectedCategoryForAmount) {
+    //   setSelectedCategoryForAmount(suggestion);
+    // }
+  };
+
+  // --- handleSaveAmount (Updated to include description) ---
   const handleSaveAmount = async () => {
     const userId = HARDCODED_USER_ID;
-    const transactionAmount = parseFloat(amount); // Use a clear variable name
+    const transactionAmount = parseFloat(amount);
 
     // --- Input Validations ---
     if (!amount || isNaN(transactionAmount) || transactionAmount <= 0) {
@@ -415,9 +499,25 @@ export default function TransactionScreen() {
       return;
     }
     if (!selectedCategoryForAmount) {
-      Alert.alert("Error", "No category selected.");
+      // If a suggestion exists, use it. Otherwise, prompt user.
+      const suggested = currentCategories.find(
+        (cat) => cat.id === suggestedCategoryId
+      );
+      if (suggested) {
+        setSelectedCategoryForAmount(suggested); // Use the suggestion
+        // Re-run save with the selected category (or structure differently)
+        // For simplicity here, we'll just proceed, but a better UX might confirm
+      } else {
+        Alert.alert("Category Required", "Please select a category.");
+        return;
+      }
+    }
+    // Re-check after potentially setting from suggestion
+    if (!selectedCategoryForAmount) {
+      Alert.alert("Error", "No category selected or suggested.");
       return;
     }
+
     if (!selectedAccountId) {
       Alert.alert("Account Required", "Please select an account.");
       return;
@@ -432,12 +532,13 @@ export default function TransactionScreen() {
       : "Unknown Account";
 
     const newTransactionData = {
-      type: transactionType, // Use the state variable
+      type: transactionType,
       categoryName: selectedCategoryForAmount.name,
       categoryIcon: selectedCategoryForAmount.icon,
       amount: transactionAmount,
       accountId: selectedAccountId,
       accountName: accountName,
+      description: transactionDescription.trim() || null, // <-- Add description, save null if empty
       timestamp: serverTimestamp(),
     };
 
@@ -450,7 +551,7 @@ export default function TransactionScreen() {
           "Accounts",
           userId,
           "accounts",
-          selectedAccountId
+          selectedAccountId! // Non-null assertion safe due to validation
         );
         const newTransactionRef = doc(
           collection(db, "Accounts", userId, "transactions")
@@ -467,10 +568,9 @@ export default function TransactionScreen() {
         // 3. Calculate the new balance based on transaction type
         let newBalance;
         if (transactionType === "Income") {
-          newBalance = currentBalance + transactionAmount; // Add income
+          newBalance = currentBalance + transactionAmount;
         } else {
-          // transactionType === "Expenses"
-          newBalance = currentBalance - transactionAmount; // Subtract expense
+          newBalance = currentBalance - transactionAmount;
         }
 
         // 4. Perform writes
@@ -481,10 +581,14 @@ export default function TransactionScreen() {
       // --- Success ---
       console.log("Transaction successfully committed!");
       Alert.alert(
-        `Transaction Saved (${transactionType})`, // Dynamic title
+        `Transaction Saved (${transactionType})`,
         `Category: ${
           selectedCategoryForAmount.name
-        }\nAmount: ₱${transactionAmount.toFixed(2)}\nAccount: ${accountName}`
+        }\nAmount: ₱${transactionAmount.toFixed(2)}\nAccount: ${accountName}${
+          newTransactionData.description
+            ? `\nDesc: ${newTransactionData.description}`
+            : ""
+        }`
       );
       handleCloseAmountModal();
       if (navigation.canGoBack()) {
@@ -502,7 +606,7 @@ export default function TransactionScreen() {
     }
   };
 
-  // --- Header Button Handlers ---
+  // --- Header Button Handlers (Keep existing) ---
   const handleCancel = () => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -519,7 +623,7 @@ export default function TransactionScreen() {
   // --- JSX ---
   return (
     <View style={styles.container}>
-      {/* --- Stack Screen Options --- */}
+      {/* --- Stack Screen Options (Keep existing) --- */}
       <Stack.Screen
         options={{
           headerLeft: () => (
@@ -538,19 +642,15 @@ export default function TransactionScreen() {
               <Text style={styles.headerButtonText}>Save</Text>
             </TouchableOpacity>
           ),
-          title: "Add Transaction", // Keep generic title
+          title: "Add Transaction",
           headerTitleAlign: "center",
-          headerStyle: {
-            backgroundColor: "#006400",
-          },
+          headerStyle: { backgroundColor: "#006400" },
           headerTintColor: "#fff",
-          headerTitleStyle: {
-            fontWeight: "bold",
-          },
+          headerTitleStyle: { fontWeight: "bold" },
         }}
       />
 
-      {/* --- Type Selector Re-added --- */}
+      {/* --- Type Selector (Keep existing) --- */}
       <View style={styles.typeSelector}>
         <TouchableOpacity
           style={[
@@ -593,19 +693,53 @@ export default function TransactionScreen() {
           {currentCategories.map((category) => (
             <TouchableOpacity
               key={category.id}
-              style={styles.categoryItem}
+              style={[
+                styles.categoryItem,
+                // Highlight if selected OR suggested
+                (selectedCategoryForAmount?.id === category.id ||
+                  suggestedCategoryId === category.id) &&
+                  styles.categoryItemSelected,
+              ]}
               onPress={() => handleCategoryPress(category)}
             >
-              <View style={styles.categoryIcon}>
+              <View
+                style={[
+                  styles.categoryIcon,
+                  // Highlight icon background if selected OR suggested
+                  (selectedCategoryForAmount?.id === category.id ||
+                    suggestedCategoryId === category.id) &&
+                    styles.categoryIconSelected,
+                ]}
+              >
                 <MaterialCommunityIcons
                   name={
                     category.icon as keyof typeof MaterialCommunityIcons.glyphMap
                   }
                   size={24}
-                  color="white"
+                  color={
+                    selectedCategoryForAmount?.id === category.id ||
+                    suggestedCategoryId === category.id
+                      ? "#006400"
+                      : "white"
+                  } // Change icon color when selected/suggested
                 />
               </View>
-              <Text style={styles.categoryText}>{category.name}</Text>
+              <Text
+                style={[
+                  styles.categoryText,
+                  // Highlight text if selected OR suggested
+                  (selectedCategoryForAmount?.id === category.id ||
+                    suggestedCategoryId === category.id) &&
+                    styles.categoryTextSelected,
+                ]}
+              >
+                {category.name}
+              </Text>
+              {/* Show 'Suggested' label */}
+              {suggestedCategoryId === category.id &&
+                !selectedCategoryForAmount && (
+                  <Text style={styles.suggestionLabel}>Suggested</Text>
+                )}
             </TouchableOpacity>
           ))}
           <TouchableOpacity
@@ -617,7 +751,7 @@ export default function TransactionScreen() {
         </View>
       </ScrollView>
 
-      {/* --- Conditionally Render Add Category Modals --- */}
+      {/* --- Conditionally Render Add Category Modals (Keep existing) --- */}
       {transactionType === "Income" ? (
         <AddIncomeCategoryModal
           visible={isAddCategoryModalVisible}
@@ -634,7 +768,7 @@ export default function TransactionScreen() {
         />
       )}
 
-      {/* --- Amount Input Modal --- */}
+      {/* --- Amount Input Modal (Updated) --- */}
       <Modal
         visible={isAmountModalVisible}
         transparent
@@ -642,9 +776,12 @@ export default function TransactionScreen() {
         onRequestClose={handleCloseAmountModal}
       >
         <View style={styles.amountModalContainer}>
-          <ScrollView contentContainerStyle={styles.amountModalScrollContent}>
+          {/* Wrap modal content in ScrollView for keyboard avoidance */}
+          <ScrollView
+            contentContainerStyle={styles.amountModalScrollContent}
+            keyboardShouldPersistTaps="handled" // Allow taps inside ScrollView
+          >
             <View style={styles.amountModalContent}>
-              {/* Dynamic Title */}
               <Text style={styles.amountModalTitle}>
                 Enter {transactionType === "Income" ? "Income" : "Expense"}{" "}
                 Details
@@ -684,10 +821,23 @@ export default function TransactionScreen() {
                 value={amount}
                 onChangeText={setAmount}
                 placeholderTextColor="#999"
-                autoFocus={true}
+                autoFocus={!selectedCategoryForAmount} // Autofocus amount if category was pre-selected
               />
 
-              {/* --- Account Selection --- */}
+              {/* Description Input <-- ADDED */}
+              <Text style={styles.amountLabel}>Description (Optional):</Text>
+              <TextInput
+                style={styles.descriptionInput} // Use a potentially different style
+                placeholder="e.g., Coffee, Groceries, Gas Station"
+                value={transactionDescription}
+                onChangeText={handleDescriptionChange} // Use the handler
+                placeholderTextColor="#999"
+                autoFocus={!!selectedCategoryForAmount} // Autofocus description if category was pre-selected
+                // onBlur={handleDescriptionBlur} // Alternative trigger point
+              />
+              {/* --- End Description Input --- */}
+
+              {/* Account Selection (Keep existing) */}
               <Text style={styles.amountLabel}>Account:</Text>
               {isLoadingAccounts ? (
                 <ActivityIndicator
@@ -702,6 +852,7 @@ export default function TransactionScreen() {
                 </Text>
               ) : (
                 <View style={styles.accountSelectorContainer}>
+                  {/* Wrap account list in ScrollView if it might exceed maxHeight */}
                   <ScrollView nestedScrollEnabled={true}>
                     {accountsList.map((account) => (
                       <TouchableOpacity
@@ -734,7 +885,7 @@ export default function TransactionScreen() {
               )}
               {/* --- End Account Selection --- */}
 
-              {/* Modal Buttons */}
+              {/* Modal Buttons (Keep existing) */}
               <View style={styles.amountModalButtons}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.cancelButton]}
@@ -743,9 +894,21 @@ export default function TransactionScreen() {
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.saveButton]}
+                  style={[
+                    styles.modalButton,
+                    styles.saveButton,
+                    // Disable save if loading, no accounts, or no category selected/suggested
+                    (isLoadingAccounts ||
+                      accountsList.length === 0 ||
+                      (!selectedCategoryForAmount && !suggestedCategoryId)) &&
+                      styles.saveButtonDisabled,
+                  ]}
                   onPress={handleSaveAmount}
-                  disabled={isLoadingAccounts || accountsList.length === 0}
+                  disabled={
+                    isLoadingAccounts ||
+                    accountsList.length === 0 ||
+                    (!selectedCategoryForAmount && !suggestedCategoryId)
+                  }
                 >
                   <Text style={styles.saveButtonText}>Save</Text>
                 </TouchableOpacity>
@@ -758,22 +921,12 @@ export default function TransactionScreen() {
   );
 }
 
-// --- Styles ---
+// --- Styles (Updated) ---
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f8f9fa",
-  },
-  headerButton: {
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-  },
-  headerButtonText: {
-    fontSize: 16,
-    color: "#fff",
-    fontWeight: "500",
-  },
-  // Re-add Type Selector styles
+  // ... (keep existing styles for container, header, typeSelector, content, sectionTitle) ...
+  container: { flex: 1, backgroundColor: "#f8f9fa" },
+  headerButton: { paddingHorizontal: 15, paddingVertical: 10 },
+  headerButtonText: { fontSize: 16, color: "#fff", fontWeight: "500" },
   typeSelector: {
     flexDirection: "row",
     backgroundColor: "#fff",
@@ -787,22 +940,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 3,
     borderBottomColor: "transparent",
   },
-  activeTypeButton: {
-    borderBottomColor: "#006400",
-  },
-  typeButtonText: {
-    fontSize: 16,
-    color: "#6c757d",
-  },
-  activeTypeButtonText: {
-    color: "#006400",
-    fontWeight: "bold",
-  },
-  content: {
-    flex: 1,
-    padding: 15,
-    // Remove paddingTop added previously
-  },
+  activeTypeButton: { borderBottomColor: "#006400" },
+  typeButtonText: { fontSize: 16, color: "#6c757d" },
+  activeTypeButtonText: { color: "#006400", fontWeight: "bold" },
+  content: { flex: 1, padding: 15 },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "bold",
@@ -810,23 +951,30 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     paddingLeft: 5,
   },
+
   categoriesGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "flex-start",
-    marginHorizontal: -5,
+    marginHorizontal: -5, // Counteract padding on items
   },
   categoryItem: {
-    width: "25%",
+    width: "25%", // Adjust for desired number of columns
     alignItems: "center",
     marginBottom: 25,
-    paddingHorizontal: 5,
+    paddingHorizontal: 5, // Add padding for spacing
+    position: "relative", // Needed for absolute positioning of label
+  },
+  categoryItemSelected: {
+    // Style for selected/suggested item container (optional)
+    // backgroundColor: '#e8f5e9', // Example background highlight
+    // borderRadius: 8,
   },
   categoryIcon: {
     width: 55,
     height: 55,
     borderRadius: 27.5,
-    backgroundColor: "#006400",
+    backgroundColor: "#006400", // Default background
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 8,
@@ -835,6 +983,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 3,
     elevation: 3,
+    borderWidth: 2, // Add border for selection highlight
+    borderColor: "transparent", // Default transparent border
+  },
+  categoryIconSelected: {
+    backgroundColor: "#DAA520", // Gold background when selected/suggested
+    borderColor: "#006400", // Green border when selected/suggested
   },
   categoryText: {
     fontSize: 12,
@@ -843,13 +997,33 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginTop: 2,
   },
+  categoryTextSelected: {
+    fontWeight: "bold",
+    color: "#006400", // Darker text when selected/suggested
+  },
+  suggestionLabel: {
+    position: "absolute",
+    top: -8,
+    right: 0,
+    backgroundColor: "#DAA520",
+    color: "white",
+    fontSize: 9,
+    fontWeight: "bold",
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 6,
+    overflow: "hidden", // Ensure text stays within bounds
+  },
   addNewButton: {
-    width: "100%",
+    width: "100%", // Span full width within the grid container
     paddingVertical: 12,
     backgroundColor: "#DAA520",
     borderRadius: 8,
     alignItems: "center",
     marginTop: 10,
+    // Ensure it's placed correctly if grid items wrap
+    marginLeft: 5, // Align with grid item padding
+    marginRight: 5,
   },
   addNewButtonText: {
     color: "#fff",
@@ -863,18 +1037,20 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.6)",
   },
   amountModalScrollContent: {
+    // Ensure content can scroll and center
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 20,
+    paddingVertical: 20, // Add padding for top/bottom spacing
+    width: "100%", // Ensure ScrollView takes width
   },
   amountModalContent: {
     backgroundColor: "white",
     borderRadius: 12,
     padding: 25,
-    width: "90%",
-    maxWidth: 380,
-    alignItems: "center",
+    width: "90%", // Use percentage width
+    maxWidth: 380, // Max width for larger screens
+    alignItems: "stretch", // Stretch children like inputs
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -926,7 +1102,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#495057",
     marginBottom: 8,
-    alignSelf: "flex-start",
+    alignSelf: "flex-start", // Align label to the left
     width: "100%",
     fontWeight: "500",
   },
@@ -937,20 +1113,34 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 15,
     marginBottom: 20,
-    fontSize: 20,
+    fontSize: 20, // Larger font for amount
     width: "100%",
-    textAlign: "right",
+    textAlign: "right", // Right-align amount
     backgroundColor: "#fff",
     color: "#212529",
+  },
+  descriptionInput: {
+    // Style for description input
+    borderWidth: 1,
+    borderColor: "#ced4da",
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    marginBottom: 20,
+    fontSize: 16, // Standard font size
+    width: "100%",
+    backgroundColor: "#fff",
+    color: "#212529",
+    minHeight: 40, // Ensure decent height
   },
   accountSelectorContainer: {
     width: "100%",
     marginBottom: 25,
-    maxHeight: 150,
+    maxHeight: 150, // Limit height for scrolling
     borderWidth: 1,
     borderColor: "#e0e0e0",
     borderRadius: 8,
-    overflow: "hidden",
+    overflow: "hidden", // Clip the ScrollView inside
   },
   accountSelectItem: {
     flexDirection: "row",
@@ -962,7 +1152,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   accountSelectItemActive: {
-    backgroundColor: "#006400",
+    backgroundColor: "#006400", // Dark green background for active
   },
   accountSelectIconImage: {
     width: 24,
@@ -974,7 +1164,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   accountSelectTextActive: {
-    color: "#fff",
+    color: "#fff", // White text for active
     fontWeight: "bold",
   },
   accountLoader: {
@@ -996,15 +1186,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     width: "100%",
-    marginTop: 10,
+    marginTop: 10, // Add some space above buttons
   },
   modalButton: {
-    flex: 1,
+    flex: 1, // Make buttons take equal width
     paddingVertical: 14,
     borderRadius: 8,
-    marginHorizontal: 6,
+    marginHorizontal: 6, // Add space between buttons
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "center", // Center text vertically
+    minHeight: 48, // Ensure consistent height
   },
   cancelButton: {
     backgroundColor: "#f8f9fa",
@@ -1015,6 +1206,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#DAA520",
     borderWidth: 1,
     borderColor: "#DAA520",
+  },
+  saveButtonDisabled: {
+    // Style for disabled save button
+    backgroundColor: "#e9d8a1",
+    borderColor: "#e9d8a1",
+    opacity: 0.7,
   },
   cancelButtonText: {
     color: "#495057",

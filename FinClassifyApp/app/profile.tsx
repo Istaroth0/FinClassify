@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 15,
-    overflow: "hidden", // To contain the image if used
+    overflow: "hidden",
   },
   profileImage: {
     width: "100%",

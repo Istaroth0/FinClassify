@@ -1,22 +1,22 @@
 // c:\Users\scubo\OneDrive\Documents\FC_proj\FinClassify\FinClassifyApp\app\CreateAccounts.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   TextInput,
+  TouchableOpacity,
+  StyleSheet,
   Image,
-  ImageSourcePropType,
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   TouchableWithoutFeedback,
   Keyboard,
   ActivityIndicator,
+  ImageSourcePropType,
 } from "react-native";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router"; // Use useRouter from expo-router
 import {
   getFirestore,
   collection,
@@ -28,26 +28,20 @@ import { app } from "../app/firebase"; // Adjust path if needed
 
 // --- Firestore Initialization ---
 const db = getFirestore(app);
-// FIXME: Replace this with actual user authentication logic
-const userId = "User"; // Replace with actual user ID from auth
+const userId = "User"; // Replace with actual authenticated user ID
 
-// --- Image Assets ---
+// --- Account Icon Data ---
+interface AccountImageOption {
+  id: string;
+  source: ImageSourcePropType;
+  name: string;
+}
 const CardsSource = require("../assets/CAImages/Cards.png");
 const MoneySource = require("../assets/CAImages/Money.png");
 const PiggybankSource = require("../assets/CAImages/Piggybank.png");
 const StoreSource = require("../assets/CAImages/Store.png");
 const WalletSource = require("../assets/CAImages/Wallet.png");
 
-// --- Interfaces ---
-interface AccountImageOption {
-  id: string;
-  source: ImageSourcePropType;
-  name: string;
-}
-
-type IncomeFrequency = "Daily" | "Weekly" | "Monthly" | null;
-
-// --- Data ---
 const accountIconOptions: AccountImageOption[] = [
   { id: "1", source: CardsSource, name: "Cards" },
   { id: "2", source: MoneySource, name: "Money" },
@@ -56,90 +50,156 @@ const accountIconOptions: AccountImageOption[] = [
   { id: "5", source: WalletSource, name: "Wallet" },
 ];
 
-const incomeFrequencies: IncomeFrequency[] = ["Daily", "Weekly", "Monthly"];
+// --- Types ---
+type IncomeFrequency = "Daily" | "Weekly" | "Monthly";
 
 // --- Component ---
-function CreateAccountsScreen() {
+const CreateAccountsScreen = () => {
   const router = useRouter();
 
-  // State for the form
-  const [newAccountName, setNewAccountName] = useState("");
-  const [newAccountAmount, setNewAccountAmount] = useState("");
+  // --- State ---
+  const [name, setName] = useState("");
+  const [initialBalance, setInitialBalance] = useState("");
   const [selectedIconOption, setSelectedIconOption] =
     useState<AccountImageOption | null>(null);
-  const [newAccountIncomeAmount, setNewAccountIncomeAmount] = useState("");
+  const [incomeAmount, setIncomeAmount] = useState("");
   const [selectedIncomeFrequency, setSelectedIncomeFrequency] =
-    useState<IncomeFrequency>(null);
-  const [isSaving, setIsSaving] = useState(false); // Loading state
+    useState<IncomeFrequency | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // --- Navigation Handlers ---
-  const handleCancel = () => {
-    if (isSaving) return;
-    // Navigate explicitly to Accounts screen, replacing the current screen
-    router.replace("/Accounts");
+  // Validation State
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [iconError, setIconError] = useState<string | null>(null);
+
+  // --- Handlers ---
+  const handleNameChange = (text: string) => {
+    setName(text);
+    if (text.trim()) {
+      setNameError(null); // Clear error if name is not empty
+    }
   };
 
-  // --- Form Validation Check (Corrected) ---
-  const isFormValid =
-    !!newAccountName.trim() && // Convert to boolean
-    !!newAccountAmount.trim() && // Convert to boolean
-    !!selectedIconOption; // Convert to boolean
+  const handleBalanceChange = (text: string) => {
+    // Allow empty string, numbers, and a single decimal point
+    if (text === "" || /^-?\d*\.?\d*$/.test(text)) {
+      setInitialBalance(text);
+      setBalanceError(null); // Clear error on valid input
+    } else {
+      setBalanceError("Invalid number format");
+    }
+  };
+
+  const handleIncomeAmountChange = (text: string) => {
+    // Allow only positive numbers or empty string
+    if (text === "" || /^\d*\.?\d*$/.test(text)) {
+      setIncomeAmount(text);
+      // If income amount is cleared, also clear frequency
+      if (text === "") {
+        setSelectedIncomeFrequency(null);
+      }
+    }
+  };
+
+  const handleFrequencySelect = (frequency: IncomeFrequency) => {
+    // Only allow selection if income amount is entered and positive
+    if (incomeAmount && parseFloat(incomeAmount) > 0) {
+      setSelectedIncomeFrequency(frequency);
+    } else {
+      Alert.alert(
+        "Set Income Amount",
+        "Please enter a positive income amount before selecting a frequency."
+      );
+    }
+  };
+
+  const handleIconSelect = (option: AccountImageOption) => {
+    setSelectedIconOption(option);
+    setIconError(null); // Clear error when an icon is selected
+  };
+
+  const handleCancel = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/Accounts"); // Fallback if cannot go back
+    }
+  };
+
+  // --- Validation Logic ---
+  const validateForm = (): boolean => {
+    let isValid = true;
+    const trimmedName = name.trim();
+    const balanceValue = parseFloat(initialBalance);
+
+    if (!trimmedName) {
+      setNameError("Account name is required.");
+      isValid = false;
+    } else {
+      setNameError(null);
+    }
+
+    if (initialBalance === "" || isNaN(balanceValue)) {
+      setBalanceError(
+        "Initial balance must be a valid number (e.g., 0, 100.50)."
+      );
+      isValid = false;
+    } else {
+      setBalanceError(null);
+    }
+
+    if (!selectedIconOption) {
+      setIconError("Please select an icon for the account.");
+      isValid = false;
+    } else {
+      setIconError(null);
+    }
+
+    // Validate income frequency only if income amount is set
+    const incomeValue = parseFloat(incomeAmount);
+    if (incomeAmount && (isNaN(incomeValue) || incomeValue <= 0)) {
+      // Technically handled by input validation, but good to double-check
+      Alert.alert(
+        "Invalid Income",
+        "If setting income, it must be a positive number."
+      );
+      isValid = false;
+    } else if (incomeAmount && incomeValue > 0 && !selectedIncomeFrequency) {
+      Alert.alert(
+        "Frequency Required",
+        "Please select an income frequency (Daily, Weekly, or Monthly)."
+      );
+      isValid = false;
+    }
+
+    return isValid;
+  };
 
   // --- Save Account Logic ---
   const handleSaveAccount = async () => {
-    // No changes needed within handleSaveAccount itself for this specific issue
-    if (!isFormValid || isSaving) return;
+    Keyboard.dismiss(); // Dismiss keyboard before saving
 
-    // --- Input Validations ---
-    const trimmedName = newAccountName.trim();
-    const newBalance = parseFloat(newAccountAmount);
-    if (isNaN(newBalance)) {
+    if (!validateForm()) {
       Alert.alert(
-        "Validation Error",
-        "Please enter a valid number for the balance (e.g., 1500.50)."
+        "Validation Failed",
+        "Please correct the errors marked in red."
       );
-      return;
-    }
-
-    let incomeAmount: number | null = null;
-    const trimmedIncome = newAccountIncomeAmount.trim();
-    if (trimmedIncome) {
-      incomeAmount = parseFloat(trimmedIncome);
-      if (isNaN(incomeAmount) || incomeAmount < 0) {
-        Alert.alert(
-          "Validation Error",
-          "Income amount must be a valid positive number (e.g., 1000) or left blank."
-        );
-        return;
-      }
-      if (!selectedIncomeFrequency) {
-        Alert.alert(
-          "Validation Error",
-          "Please select an income frequency if entering an income amount."
-        );
-        return;
-      }
-    } else if (selectedIncomeFrequency) {
-      // Clear frequency if income amount is removed
-      setSelectedIncomeFrequency(null);
-    }
-    // --- End Validations ---
-
-    if (!userId) {
-      Alert.alert("Error", "User not identified. Please log in again.");
       return;
     }
 
     setIsSaving(true);
 
+    const trimmedName = name.trim();
+    const newBalance = parseFloat(initialBalance); // Already validated as number
+    const incomeNum = incomeAmount ? parseFloat(incomeAmount) : null; // Parse income amount
+
     const accountData = {
       title: trimmedName,
       balance: newBalance,
-      iconName: selectedIconOption!.name, // Non-null assertion is safe here due to isFormValid check
-      incomeAmount: incomeAmount,
-      incomeFrequency: incomeAmount ? selectedIncomeFrequency : null,
-      // Consider adding createdAt timestamp if needed for sorting/auditing
-      // createdAt: serverTimestamp(),
+      iconName: selectedIconOption!.name, // Non-null assertion safe due to validation
+      incomeAmount: incomeNum && incomeNum > 0 ? incomeNum : null, // Store null if 0 or empty
+      incomeFrequency:
+        incomeNum && incomeNum > 0 ? selectedIncomeFrequency : null, // Store null if no income amount
     };
 
     // --- Firestore Transaction ---
@@ -158,30 +218,32 @@ function CreateAccountsScreen() {
           "transactions"
         );
 
-        // 1. Create the new account document reference *first* to get its ID
+        // Create a new document reference for the account *within* the transaction
         const accountDocRef = doc(accountsCollectionRef);
-
-        // 2. Set the account data
+        // Set the account data using the transaction object
         transaction.set(accountDocRef, accountData);
 
-        // 3. If there's an initial balance, create an initial transaction
+        // Create initial balance transaction only if balance is not zero
         if (newBalance !== 0) {
           const balanceChange = newBalance;
-          const transactionType = balanceChange > 0 ? "Income" : "Expenses";
+          const transactionType = balanceChange >= 0 ? "Income" : "Expenses";
           const transactionCategory = "Initial Balance";
           const transactionIcon =
-            balanceChange > 0 ? "bank-plus" : "bank-minus"; // Or a more generic icon like 'cash-plus'/'cash-minus'
+            balanceChange >= 0 ? "bank-plus" : "bank-minus";
 
+          // Create a new document reference for the transaction *within* the transaction
           const newTransactionRef = doc(transactionsCollectionRef);
           const transactionData = {
             type: transactionType,
             categoryName: transactionCategory,
             categoryIcon: transactionIcon,
             amount: Math.abs(balanceChange),
-            accountId: accountDocRef.id, // Use the generated ID
-            accountName: accountData.title, // Use the account title
+            accountId: accountDocRef.id, // Use the ID generated within the transaction
+            accountName: accountData.title,
+            description: "Initial account balance", // Add description
             timestamp: serverTimestamp(),
           };
+          // Set the transaction data using the transaction object
           transaction.set(newTransactionRef, transactionData);
         }
       });
@@ -190,8 +252,7 @@ function CreateAccountsScreen() {
         "Success",
         `Account "${accountData.title}" added successfully.`
       );
-      // Navigate explicitly to Accounts screen, replacing the current screen
-      router.replace("/Accounts");
+      router.replace("/Accounts"); // Navigate back to Accounts list
     } catch (error: any) {
       console.error("Account save transaction failed: ", error);
       Alert.alert(
@@ -203,186 +264,169 @@ function CreateAccountsScreen() {
     }
   };
 
+  // --- JSX ---
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={styles.keyboardAvoidingContainer}
     >
-      {/* --- Stack Screen Options (Header Only) --- */}
+      {/* Stack Screen Configuration */}
       <Stack.Screen
         options={{
           title: "Create New Account",
           headerTitleAlign: "center",
-          headerStyle: {
-            backgroundColor: "#006400", // Match theme
-          },
-          headerTintColor: "#fff",
-          headerTitleStyle: {
-            fontWeight: "bold",
-          },
-          // Default back button is usually sufficient
+          headerStyle: { backgroundColor: "#006400" }, // Dark green header
+          headerTintColor: "#fff", // White text/icons in header
+          headerTitleStyle: { fontWeight: "bold" },
+          // Optionally add Cancel/Save buttons in header if preferred over bottom buttons
+          // headerLeft: () => (...),
+          // headerRight: () => (...),
         }}
       />
-
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ScrollView
-          contentContainerStyle={styles.scrollContainer}
+          style={styles.scrollContainer}
+          contentContainerStyle={{ flexGrow: 1 }} // Ensure content can grow
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.formContainer}>
-            {/* Balance Input */}
+            {/* Account Name */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Initial Balance (₱)</Text>
+              <Text style={styles.inputLabel}>Account Name *</Text>
               <TextInput
-                placeholder="0.00"
-                style={styles.input}
-                keyboardType="numeric"
-                value={newAccountAmount}
-                onChangeText={setNewAccountAmount}
+                style={[styles.input, nameError && { borderColor: "red" }]}
+                placeholder="e.g., Savings, Wallet, BDO"
+                value={name}
+                onChangeText={handleNameChange}
                 placeholderTextColor="#999"
-                autoFocus={true} // Focus on the first field
-                editable={!isSaving}
+                maxLength={50} // Limit name length
               />
+              {nameError && (
+                <Text style={styles.validationHint}>{nameError}</Text>
+              )}
             </View>
 
-            {/* Account Name Input */}
+            {/* Initial Balance */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Account Name</Text>
+              <Text style={styles.inputLabel}>Initial Balance *</Text>
               <TextInput
-                placeholder="e.g., BDO Savings, GCash Wallet"
-                style={styles.input}
-                value={newAccountName}
-                onChangeText={setNewAccountName}
+                style={[styles.input, balanceError && { borderColor: "red" }]}
+                placeholder="0.00"
+                keyboardType="numeric"
+                value={initialBalance}
+                onChangeText={handleBalanceChange}
                 placeholderTextColor="#999"
-                maxLength={50}
-                editable={!isSaving}
               />
+              {balanceError && (
+                <Text style={styles.validationHint}>{balanceError}</Text>
+              )}
             </View>
 
             {/* Icon Selection */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Select Icon</Text>
+              <Text style={styles.inputLabel}>Select Icon *</Text>
               <ScrollView
-                horizontal={true}
+                horizontal
                 showsHorizontalScrollIndicator={false}
                 style={styles.iconScrollView}
               >
-                {accountIconOptions.map((iconOption) => (
+                {accountIconOptions.map((option) => (
                   <TouchableOpacity
-                    key={iconOption.id}
+                    key={option.id}
                     style={[
                       styles.iconTouchable,
-                      selectedIconOption?.id === iconOption.id &&
+                      selectedIconOption?.id === option.id &&
                         styles.iconSelected,
-                      isSaving && styles.disabledOverlay, // Apply disabled style if saving
                     ]}
-                    onPress={() =>
-                      !isSaving && setSelectedIconOption(iconOption)
-                    }
-                    activeOpacity={0.6}
-                    disabled={isSaving} // Disable interaction if saving
+                    onPress={() => handleIconSelect(option)}
                   >
                     <Image
-                      source={iconOption.source}
+                      source={option.source}
                       style={styles.iconImage}
                       resizeMode="contain"
                     />
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-              {/* Validation hint for icon selection - Comparison is now valid */}
-              {!selectedIconOption &&
-                isFormValid === false && ( // Show hint only if trying to save without icon
-                  <Text style={styles.validationHint}>
-                    Please select an icon.
-                  </Text>
-                )}
+              {iconError && (
+                <Text style={styles.validationHint}>{iconError}</Text>
+              )}
             </View>
 
-            {/* --- Associated Income Section --- */}
+            {/* Optional Recurring Income Section */}
             <View style={styles.incomeSection}>
               <Text style={styles.sectionTitle}>
-                Associated Income (Optional)
+                Optional: Recurring Income
               </Text>
-              {/* Income Amount */}
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Income Amount (₱)</Text>
+                <Text style={styles.inputLabel}>
+                  Estimated Income Amount (₱)
+                </Text>
                 <TextInput
-                  placeholder="e.g., 1000 (Leave blank if none)"
                   style={styles.input}
+                  placeholder="e.g., 5000"
                   keyboardType="numeric"
-                  value={newAccountIncomeAmount}
-                  onChangeText={setNewAccountIncomeAmount}
+                  value={incomeAmount}
+                  onChangeText={handleIncomeAmountChange}
                   placeholderTextColor="#999"
-                  editable={!isSaving}
                 />
               </View>
-              {/* Income Frequency */}
+
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Income Frequency</Text>
                 <View style={styles.frequencySelector}>
-                  {incomeFrequencies.map((freq) => (
-                    <TouchableOpacity
-                      key={freq}
-                      style={[
-                        styles.frequencyButton,
-                        selectedIncomeFrequency === freq &&
-                          styles.frequencyButtonSelected,
-                        // Disable if no income amount entered or if saving
-                        (!newAccountIncomeAmount.trim() || isSaving) &&
-                          styles.frequencyButtonDisabled,
-                      ]}
-                      onPress={() =>
-                        !isSaving && setSelectedIncomeFrequency(freq)
-                      }
-                      // Disable interaction if no income amount or saving
-                      disabled={!newAccountIncomeAmount.trim() || isSaving}
-                      activeOpacity={0.7}
-                    >
-                      <Text
+                  {(["Daily", "Weekly", "Monthly"] as IncomeFrequency[]).map(
+                    (freq) => (
+                      <TouchableOpacity
+                        key={freq}
                         style={[
-                          styles.frequencyButtonText,
+                          styles.frequencyButton,
                           selectedIncomeFrequency === freq &&
-                            styles.frequencyButtonTextSelected,
-                          // Style text differently if disabled
-                          (!newAccountIncomeAmount.trim() || isSaving) &&
-                            styles.frequencyButtonDisabledText,
+                            styles.frequencyButtonSelected,
+                          // Disable if no income amount is entered or if it's zero/invalid
+                          (!incomeAmount || parseFloat(incomeAmount) <= 0) &&
+                            styles.frequencyButtonDisabled,
                         ]}
+                        onPress={() => handleFrequencySelect(freq)}
+                        disabled={
+                          !incomeAmount || parseFloat(incomeAmount) <= 0
+                        }
                       >
-                        {freq}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                        <Text
+                          style={[
+                            styles.frequencyButtonText,
+                            selectedIncomeFrequency === freq &&
+                              styles.frequencyButtonTextSelected,
+                            (!incomeAmount || parseFloat(incomeAmount) <= 0) &&
+                              styles.frequencyButtonDisabledText,
+                          ]}
+                        >
+                          {freq}
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  )}
                 </View>
               </View>
             </View>
-            {/* --- End Income Section --- */}
 
-            {/* --- Action Buttons (Moved to Bottom) --- */}
+            {/* Action Buttons */}
             <View style={styles.actionButtonsContainer}>
               <TouchableOpacity
+                style={[styles.actionButton, styles.cancelButton]}
                 onPress={handleCancel}
-                style={[
-                  styles.actionButton,
-                  styles.cancelButton,
-                  isSaving && styles.actionButtonDisabled, // Disable visually if saving
-                ]}
-                disabled={isSaving} // Disable interaction if saving
-                activeOpacity={0.7}
+                disabled={isSaving} // Disable cancel while saving
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={handleSaveAccount}
                 style={[
                   styles.actionButton,
                   styles.saveButton,
-                  // Disable visually if form is invalid OR saving is in progress
-                  (!isFormValid || isSaving) && styles.actionButtonDisabled,
+                  isSaving && styles.actionButtonDisabled, // Style when disabled
                 ]}
-                // Disable interaction if form is invalid OR saving is in progress
-                disabled={!isFormValid || isSaving}
-                activeOpacity={0.7}
+                onPress={handleSaveAccount}
+                disabled={isSaving} // Prevent multiple clicks while saving
               >
                 {isSaving ? (
                   <ActivityIndicator color="#fff" size="small" />
@@ -391,27 +435,26 @@ function CreateAccountsScreen() {
                 )}
               </TouchableOpacity>
             </View>
-            {/* --- End Action Buttons --- */}
           </View>
         </ScrollView>
       </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   );
-}
+};
 
 // --- Styles ---
-// Styles remain unchanged
 const styles = StyleSheet.create({
   keyboardAvoidingContainer: {
     flex: 1,
     backgroundColor: "#f4f6f8", // Light grey background
   },
   scrollContainer: {
-    flexGrow: 1,
-    paddingBottom: 40, // Ensure space for buttons at the bottom
+    flex: 1, // Take available space
   },
   formContainer: {
     padding: 25,
+    flexGrow: 1, // Allow container to grow within ScrollView
+    paddingBottom: 40, // Ensure space for buttons at the bottom
   },
   inputGroup: {
     width: "100%",
@@ -447,9 +490,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#f0f0f0", // Light background for icons
     alignItems: "center",
     justifyContent: "center",
-    // Add transition for smoother selection feedback (optional)
-    // transitionProperty: 'borderColor, backgroundColor',
-    // transitionDuration: '0.2s',
   },
   iconSelected: {
     borderColor: "#006400", // Dark green border when selected
@@ -458,11 +498,6 @@ const styles = StyleSheet.create({
   iconImage: {
     width: 55,
     height: 55,
-  },
-  disabledOverlay: {
-    opacity: 0.6, // Make disabled icons/buttons look faded
-    // Optionally change background color for disabled state
-    // backgroundColor: '#e0e0e0',
   },
   validationHint: {
     fontSize: 12,
@@ -563,12 +598,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#e9d8a1", // Lighter gold when save is disabled
     borderColor: "#e9d8a1",
   },
-  // Specific disabled style for cancel button if needed (currently uses general)
-  // cancelButtonDisabled: {
-  //   backgroundColor: '#e9ecef',
-  //   borderColor: '#dee2e6',
-  //   opacity: 0.7,
-  // },
 });
 
 export default CreateAccountsScreen;
