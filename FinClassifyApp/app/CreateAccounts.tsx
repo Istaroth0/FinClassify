@@ -23,12 +23,13 @@ import {
   doc,
   runTransaction,
   serverTimestamp,
-} from "firebase/firestore";
+} from "firebase/firestore"; // Import Firebase Auth
+import { getAuth, onAuthStateChanged, User } from "firebase/auth";
 import { app } from "../app/firebase"; // Adjust path if needed
 
 // --- Firestore Initialization ---
 const db = getFirestore(app);
-const userId = "User"; // Replace with actual authenticated user ID
+const auth = getAuth(app); // Initialize Firebase Auth
 
 // --- Account Icon Data ---
 interface AccountImageOption {
@@ -57,6 +58,7 @@ type IncomeFrequency = "Daily" | "Weekly" | "Monthly";
 const CreateAccountsScreen = () => {
   const router = useRouter();
 
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   // --- State ---
   const [name, setName] = useState("");
   const [initialBalance, setInitialBalance] = useState("");
@@ -72,6 +74,22 @@ const CreateAccountsScreen = () => {
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [iconError, setIconError] = useState<string | null>(null);
 
+  // --- Listen for Auth State Changes ---
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (!user) {
+        // Handle user not logged in (e.g., navigate to login, disable form)
+        console.log("CreateAccounts: No user logged in.");
+        Alert.alert(
+          "Login Required",
+          "You must be logged in to create accounts."
+        );
+        router.replace("/"); // Redirect to login
+      }
+    });
+    return () => unsubscribeAuth();
+  }, [router]);
   // --- Handlers ---
   const handleNameChange = (text: string) => {
     setName(text);
@@ -179,6 +197,11 @@ const CreateAccountsScreen = () => {
   const handleSaveAccount = async () => {
     Keyboard.dismiss(); // Dismiss keyboard before saving
 
+    if (!currentUser) {
+      Alert.alert("Login Required", "You must be logged in to save accounts.");
+      return;
+    }
+
     if (!validateForm()) {
       Alert.alert(
         "Validation Failed",
@@ -208,13 +231,13 @@ const CreateAccountsScreen = () => {
         const accountsCollectionRef = collection(
           db,
           "Accounts",
-          userId,
+          currentUser.uid, // Use actual user UID
           "accounts"
         );
         const transactionsCollectionRef = collection(
           db,
           "Accounts",
-          userId,
+          currentUser.uid, // Use actual user UID
           "transactions"
         );
 
@@ -415,7 +438,7 @@ const CreateAccountsScreen = () => {
               <TouchableOpacity
                 style={[styles.actionButton, styles.cancelButton]}
                 onPress={handleCancel}
-                disabled={isSaving} // Disable cancel while saving
+                disabled={isSaving || !currentUser} // Disable cancel while saving or if no user
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
@@ -423,10 +446,10 @@ const CreateAccountsScreen = () => {
                 style={[
                   styles.actionButton,
                   styles.saveButton,
-                  isSaving && styles.actionButtonDisabled, // Style when disabled
+                  (isSaving || !currentUser) && styles.actionButtonDisabled, // Style when disabled or no user
                 ]}
                 onPress={handleSaveAccount}
-                disabled={isSaving} // Prevent multiple clicks while saving
+                disabled={isSaving || !currentUser} // Prevent multiple clicks or if no user
               >
                 {isSaving ? (
                   <ActivityIndicator color="#fff" size="small" />

@@ -22,11 +22,13 @@ import {
   Timestamp,
   orderBy,
 } from "firebase/firestore";
+import { getAuth, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
 import { app } from "../app/firebase"; // Adjust path if needed
 import { useDateContext } from "../app/context/DateContext"; // Import the context hook
 
 const { width, height } = Dimensions.get("window");
 const db = getFirestore(app);
+const auth = getAuth(app); // Initialize Firebase Auth
 const HARDCODED_USER_ID = "User";
 
 // --- Interfaces ---
@@ -99,6 +101,7 @@ const Header = () => {
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
 
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   // State for totals and loading (remains the same)
   const [totalIncome, setTotalIncome] = useState(0);
   const [totalExpenses, setTotalExpenses] = useState(0);
@@ -112,14 +115,34 @@ const Header = () => {
 
   const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i);
 
+  // --- Listen for Auth State Changes ---
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (!user) {
+        // Reset data or show login prompt if needed when user logs out
+        setErrorTotals("Please log in to view totals.");
+        setIsLoadingTotals(false);
+        setIsLoadingAccounts(false);
+      }
+    });
+    return () => unsubscribeAuth(); // Cleanup listener
+  }, []);
+
   // --- Fetch Accounts (remains the same) ---
   useEffect(() => {
+    if (!currentUser) {
+      // Don't fetch if no user
+      setIsLoadingAccounts(false);
+      setAccountIncomeData([]); // Clear data if no user
+      return;
+    }
+
     setIsLoadingAccounts(true);
-    const userId = HARDCODED_USER_ID;
     const accountsCollectionRef = collection(
       db,
       "Accounts",
-      userId,
+      currentUser.uid, // Use currentUser.uid
       "accounts"
     );
     const q = query(accountsCollectionRef);
@@ -150,11 +173,12 @@ const Header = () => {
       }
     );
     return () => unsubscribeAccounts();
-  }, []);
+  }, [currentUser]); // Re-run if user changes
 
   // --- Fetch Totals & Calculate (uses selectedYear, selectedMonth from context) ---
   useEffect(() => {
-    if (isLoadingAccounts) {
+    if (isLoadingAccounts || !currentUser) {
+      // Check for user
       setIsLoadingTotals(true);
       return;
     }
@@ -166,8 +190,8 @@ const Header = () => {
     setTotalExpenses(0);
     setNetTotal(0);
 
-    const userId = HARDCODED_USER_ID;
-    if (!userId) {
+    if (!currentUser.uid) {
+      // Check for user UID specifically
       setErrorTotals("User missing.");
       setIsLoadingTotals(false);
       return;
@@ -210,8 +234,9 @@ const Header = () => {
 
     const transactionsCollectionRef = collection(
       db,
+
       "Accounts",
-      userId,
+      currentUser.uid,
       "transactions"
     );
     const q = query(
@@ -255,7 +280,13 @@ const Header = () => {
     );
 
     return () => unsubscribeTransactions();
-  }, [selectedYear, selectedMonth, accountIncomeData, isLoadingAccounts]); // Depend on context date
+  }, [
+    currentUser,
+    selectedYear,
+    selectedMonth,
+    accountIncomeData,
+    isLoadingAccounts,
+  ]); // Depend on context date and user
 
   // --- Date Picker Logic (updates context) ---
   const showDatePicker = () => setShowYearPicker(true);
@@ -309,7 +340,8 @@ const Header = () => {
 
   // --- Render Totals (remains the same) ---
   const renderTotals = () => {
-    if (isLoadingTotals || isLoadingAccounts) {
+    if (!currentUser || isLoadingTotals || isLoadingAccounts) {
+      // Check for user
       return (
         <ActivityIndicator
           size="small"

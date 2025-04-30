@@ -22,12 +22,13 @@ import {
   Timestamp,
   onSnapshot,
 } from "firebase/firestore";
+import { getAuth, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
 import { app } from "../app/firebase"; // Adjust path if needed
 import { useDateContext } from "./context/DateContext"; // Import the context hook
 
 // --- Firestore Initialization ---
 const db = getFirestore(app);
-const HARDCODED_USER_ID = "User"; // Replace with actual auth user ID
+const auth = getAuth(app); // Initialize Firebase Auth
 
 // --- Interfaces ---
 // Re-using Transaction interface structure (ensure consistency with record.tsx)
@@ -110,12 +111,10 @@ const ExpandedTransactionList = ({
         <View key={transaction.id} style={styles.expandedTransactionItem}>
           <View style={styles.expandedDetails}>
             <Text style={styles.expandedDate}>
-              {transaction.timestamp
-                .toDate()
-                .toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })}
+              {transaction.timestamp.toDate().toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
             </Text>
             <Text style={styles.expandedDescription} numberOfLines={1}>
               {transaction.description ||
@@ -138,6 +137,7 @@ function AnalysisScreen() {
   const navigation = useNavigation();
   const { selectedYear, selectedMonth } = useDateContext(); // Get date from context
 
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   const [expenseTransactions, setExpenseTransactions] = useState<Transaction[]>(
     []
   );
@@ -150,19 +150,28 @@ function AnalysisScreen() {
     navigation.navigate("transactions" as never);
   };
 
+  // --- Listen for Auth State Changes ---
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user); // Set user to state (null if not logged in)
+      if (!user) {
+        // Handle user not logged in (e.g., navigate to login, show message)
+        console.log("Analysis: No user logged in.");
+        setLoading(false);
+        setError("Please log in to view analysis.");
+      }
+    });
+    return () => unsubscribeAuth(); // Cleanup listener
+  }, []);
+
   // --- Fetch Expense Transactions based on Date Context ---
   useEffect(() => {
+    if (!currentUser) return; // Don't fetch if user is not logged in
+
     setLoading(true);
     setError(null);
     setExpenseTransactions([]); // Clear previous data on date change
     setExpandedCategory(null); // Collapse any expanded item on date change
-    const userId = HARDCODED_USER_ID;
-
-    if (!userId) {
-      setError("User not identified.");
-      setLoading(false);
-      return;
-    }
 
     // Calculate date range
     const monthNumber = getMonthNumber(selectedMonth);
@@ -179,7 +188,7 @@ function AnalysisScreen() {
     const transactionsCollectionRef = collection(
       db,
       "Accounts",
-      userId,
+      currentUser.uid, // Use the actual user's UID
       "transactions"
     );
 
@@ -250,7 +259,7 @@ function AnalysisScreen() {
     );
 
     return () => unsubscribe(); // Cleanup listener on unmount or date change
-  }, [selectedYear, selectedMonth]); // Re-run effect when date context changes
+  }, [currentUser, selectedYear, selectedMonth]); // Re-run effect when user or date context changes
 
   // --- Process fetched transactions to calculate spending per category ---
   const categorySpendingData = useMemo(() => {
@@ -345,6 +354,17 @@ function AnalysisScreen() {
 
   // --- Render Loading / Error / Empty / List ---
   const renderContent = () => {
+    // Show message if user is not logged in (and auth check is done)
+    if (!currentUser && !loading) {
+      return (
+        <View style={styles.centeredStateContainer}>
+          <MaterialIcons name="login" size={40} color="#888" />
+          <Text style={styles.centeredStateText}>
+            {error || "Please log in."}
+          </Text>
+        </View>
+      );
+    }
     if (loading) {
       return (
         <View style={styles.centeredStateContainer}>

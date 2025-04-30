@@ -24,11 +24,12 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
+import { getAuth, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
 import { app } from "../app/firebase"; // Adjust path if needed
 
 // --- Firestore Initialization ---
 const db = getFirestore(app);
-const HARDCODED_USER_ID = "User";
+const auth = getAuth(app); // Initialize Firebase Auth
 
 // --- Image Assets ---
 const CardsSource = require("../assets/CAImages/Cards.png");
@@ -86,6 +87,7 @@ const getIconSourceFromName = (
 function Accounts() {
   const navigation = useNavigation();
 
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   // Account State
   const [accountRecords, setAccountRecords] = useState<AccountRecord[]>([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
@@ -108,15 +110,30 @@ function Accounts() {
     console.log("Navigating to CreateAccounts page..."); // Updated log
   };
 
+  // --- Listen for Auth State Changes ---
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (!user) {
+        console.log("Accounts: No user logged in.");
+        setIsLoadingAccounts(false);
+        setErrorAccounts("Please log in to view accounts.");
+        setAccountRecords([]); // Clear accounts if user logs out
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
   // --- Fetch Accounts from Firestore ---
   useEffect(() => {
+    if (!currentUser) return; // Don't fetch if no user
+
     setIsLoadingAccounts(true);
     setErrorAccounts(null);
-    const userId = HARDCODED_USER_ID;
     const accountsCollectionRef = collection(
       db,
       "Accounts",
-      userId,
+      currentUser.uid, // Use actual user UID
       "accounts"
     );
     const q = query(accountsCollectionRef, orderBy("title"));
@@ -160,7 +177,7 @@ function Accounts() {
       }
     );
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]); // Re-run if user changes
 
   // --- Calculate Total Income ---
   useEffect(() => {
@@ -203,6 +220,11 @@ function Accounts() {
       return;
     }
 
+    if (!currentUser) {
+      Alert.alert("Error", "You must be logged in to delete accounts.");
+      return;
+    }
+
     Alert.alert(
       "Delete Account",
       `Are you sure you want to delete the account "${accountToDelete.title}"?\n\nAssociated transactions will NOT be deleted but will refer to a missing account. This action cannot be undone.`,
@@ -211,11 +233,10 @@ function Accounts() {
         {
           text: "Delete Account",
           onPress: async () => {
-            const userId = HARDCODED_USER_ID;
             const accountDocRef = doc(
               db,
               "Accounts",
-              userId,
+              currentUser.uid, // Use actual user UID
               "accounts",
               accountToDelete.id
             );
@@ -244,6 +265,17 @@ function Accounts() {
 
   // --- Render Loading/Error/Content States ---
   const renderAccountList = () => {
+    // Show message if user is not logged in (and auth check is done)
+    if (!currentUser && !isLoadingAccounts) {
+      return (
+        <View style={styles.centeredStateContainer}>
+          <MaterialIcons name="login" size={40} color="#888" />
+          <Text style={styles.infoText}>
+            {errorAccounts || "Please log in."}
+          </Text>
+        </View>
+      );
+    }
     if (isLoadingAccounts) {
       return (
         <View style={styles.centeredStateContainer}>
@@ -349,16 +381,17 @@ function Accounts() {
 
           {/* --- Add New Account Button Restored --- */}
           {/* Conditionally render based on loading/error state */}
-          {!isLoadingAccounts && (
-            <TouchableOpacity
-              style={styles.addButton}
-              onPress={navigateToAddAccount} // Navigate to the new page
-              activeOpacity={0.7}
-            >
-              <Ionicons name="add-circle-outline" size={24} color="#006400" />
-              <Text style={styles.addButtonText}>Add New Account</Text>
-            </TouchableOpacity>
-          )}
+          {currentUser &&
+            !isLoadingAccounts && ( // Only show if logged in and not loading
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={navigateToAddAccount} // Navigate to the new page
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add-circle-outline" size={24} color="#006400" />
+                <Text style={styles.addButtonText}>Add New Account</Text>
+              </TouchableOpacity>
+            )}
 
           {/* --- Accounts List Section --- */}
           <Text style={styles.sectionTitle}>Your Accounts</Text>

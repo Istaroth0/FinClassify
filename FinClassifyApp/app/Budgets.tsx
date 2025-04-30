@@ -26,15 +26,16 @@ import {
   doc,
   orderBy,
 } from "firebase/firestore";
+import { getAuth, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
 
 // Import components and config
 import HeaderTopNav from "../components/headertopnav";
 import BotNavigationBar from "../components/botnavigationbar";
-import { app } from "../app/firebase";
+import { app } from "../app/firebase"; // Adjust path if needed
 
 // --- Firestore Initialization ---
 const db = getFirestore(app);
-const HARDCODED_USER_ID = "User"; // Replace with actual auth user ID in a real app
+const auth = getAuth(app); // Initialize Firebase Auth
 
 // --- Hardcoded Predefined Expense Categories (Base List) ---
 const PREDEFINED_EXPENSE_CATEGORIES: Array<{
@@ -91,6 +92,7 @@ const formatCurrency = (amount: number): string => {
 const BudgetsScreen = () => {
   const navigation = useNavigation();
 
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   // State for budget limits fetched from 'budgets' collection
   const [budgetDefinitions, setBudgetDefinitions] = useState<
     BudgetDefinition[]
@@ -121,13 +123,33 @@ const BudgetsScreen = () => {
     navigation.navigate("transactions" as never); // Navigate to the transaction screen
   };
 
+  // --- Listen for Auth State Changes ---
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (!user) {
+        console.log("Budgets: No user logged in.");
+        setIsLoadingBudgets(false);
+        setIsLoadingUserCategories(false);
+        setErrorBudgets("Please log in to view budgets.");
+        setBudgetDefinitions([]); // Clear data on logout
+        setUserExpenseCategories([]);
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
   // --- Fetch User-Defined Expense Categories ('Expenses' collection) ---
   useEffect(() => {
+    if (!currentUser) return; // Don't fetch if no user
     setIsLoadingUserCategories(true);
     setErrorUserCategories(null);
-    const userId = HARDCODED_USER_ID;
-
-    const userCategoriesColRef = collection(db, "Accounts", userId, "Expenses");
+    const userCategoriesColRef = collection(
+      db,
+      "Accounts",
+      currentUser.uid,
+      "Expenses"
+    ); // Use actual UID
     const qUser = query(userCategoriesColRef, orderBy("name"));
 
     const unsubscribeUserCats = onSnapshot(
@@ -157,29 +179,34 @@ const BudgetsScreen = () => {
     );
 
     return () => unsubscribeUserCats();
-  }, []);
+  }, [currentUser]); // Re-run if user changes
 
   // --- Fetch Budget Definitions (Limits from 'budgets' collection) ---
   useEffect(() => {
-    if (isLoadingUserCategories) {
+    if (!currentUser || isLoadingUserCategories) {
+      // Also check for user
       setIsLoadingBudgets(true);
       return;
     }
-
     setIsLoadingBudgets(true);
     setErrorBudgets(null);
-    const userId = HARDCODED_USER_ID;
 
     const predefinedNames = PREDEFINED_EXPENSE_CATEGORIES.map((c) => c.name);
     const userNames = userExpenseCategories.map((c) => c.name);
     const allCategoryNames = [...new Set([...predefinedNames, ...userNames])];
 
-    const budgetsColRef = collection(db, "Accounts", userId, "budgets");
+    const budgetsColRef = collection(
+      db,
+      "Accounts",
+      currentUser.uid,
+      "budgets"
+    ); // Use actual UID
 
+    // Firestore 'in' query limit is 30 as of latest check
     const categoryFilter =
       allCategoryNames.length > 0
         ? allCategoryNames.slice(0, 30)
-        : ["__EMPTY_PLACEHOLDER__"];
+        : ["__EMPTY_PLACEHOLDER__"]; // Use placeholder if no categories
 
     if (allCategoryNames.length > 30) {
       console.warn(
@@ -217,7 +244,7 @@ const BudgetsScreen = () => {
     );
 
     return () => unsubscribeBudgets();
-  }, [userExpenseCategories, isLoadingUserCategories]);
+  }, [currentUser, userExpenseCategories, isLoadingUserCategories]); // Add currentUser dependency
 
   // --- Calculate Display Items using useMemo ---
   const displayItems = useMemo(() => {
@@ -260,6 +287,7 @@ const BudgetsScreen = () => {
         };
       })
       .sort((a, b) => {
+        // Sort budgeted items first, then alphabetically
         const aHasBudget = a.limit > 0 && a.budgetId !== null;
         const bHasBudget = b.limit > 0 && b.budgetId !== null;
         if (aHasBudget && !bHasBudget) return -1;
@@ -300,6 +328,11 @@ const BudgetsScreen = () => {
 
   // --- Save/Update Budget Limit ---
   const handleSaveBudget = async () => {
+    if (!currentUser) {
+      Alert.alert("Login Required", "You must be logged in to save budgets.");
+      return;
+    }
+
     const limitValue = parseFloat(budgetLimit);
 
     if (!selectedCategoryName) {
@@ -314,6 +347,7 @@ const BudgetsScreen = () => {
       return;
     }
 
+    // Find category info (icon) from combined list
     const allCategoriesMap = new Map<
       string,
       { name: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }
@@ -340,14 +374,19 @@ const BudgetsScreen = () => {
     const budgetData = {
       categoryName: selectedCategoryName,
       limit: limitValue,
-      icon: categoryInfo.icon,
+      icon: categoryInfo.icon, // Include icon for consistency
     };
 
-    const userId = HARDCODED_USER_ID;
-    const budgetsColRef = collection(db, "Accounts", userId, "budgets");
+    const budgetsColRef = collection(
+      db,
+      "Accounts",
+      currentUser.uid,
+      "budgets"
+    ); // Use actual UID
 
     try {
       if (isEditMode && editingBudgetId) {
+        // Update existing budget document
         const budgetDocRef = doc(budgetsColRef, editingBudgetId);
         await updateDoc(budgetDocRef, budgetData);
         Alert.alert(
@@ -355,10 +394,12 @@ const BudgetsScreen = () => {
           `Budget limit for "${selectedCategoryName}" updated.`
         );
       } else {
+        // Check if a budget doc already exists for this category (shouldn't happen if editingBudgetId is null, but good practice)
         const existingBudget = budgetDefinitions.find(
           (b) => b.categoryName === selectedCategoryName
         );
         if (existingBudget) {
+          // Update if found unexpectedly
           Alert.alert(
             "Info",
             `Budget for "${selectedCategoryName}" already exists. Updating limit.`
@@ -366,6 +407,7 @@ const BudgetsScreen = () => {
           const budgetDocRef = doc(budgetsColRef, existingBudget.id);
           await updateDoc(budgetDocRef, budgetData);
         } else {
+          // Add new budget document
           await addDoc(budgetsColRef, budgetData);
           Alert.alert(
             "Success",
@@ -373,7 +415,7 @@ const BudgetsScreen = () => {
           );
         }
       }
-      closeModal();
+      closeModal(); // Close modal on success
     } catch (err: any) {
       console.error("Error saving budget:", err);
       Alert.alert(
@@ -388,6 +430,11 @@ const BudgetsScreen = () => {
     budgetId: string | null,
     categoryName: string
   ) => {
+    if (!currentUser) {
+      Alert.alert("Login Required", "You must be logged in to delete budgets.");
+      return;
+    }
+
     if (!budgetId) {
       Alert.alert(
         "Info",
@@ -405,11 +452,10 @@ const BudgetsScreen = () => {
           text: "Delete Limit",
           style: "destructive",
           onPress: async () => {
-            const userId = HARDCODED_USER_ID;
             const budgetDocRef = doc(
               db,
               "Accounts",
-              userId,
+              currentUser.uid, // Use actual UID
               "budgets",
               budgetId
             );
@@ -419,6 +465,7 @@ const BudgetsScreen = () => {
                 "Success",
                 `Budget limit for "${categoryName}" removed.`
               );
+              // Firestore listener will update the UI
             } catch (err: any) {
               console.error("Error deleting budget limit:", err);
               Alert.alert(
@@ -495,19 +542,21 @@ const BudgetsScreen = () => {
               {hasBudgetSet ? (
                 <TouchableOpacity
                   onPress={(e) => {
+                    // Prevent the parent TouchableOpacity from firing
                     e.stopPropagation();
                     handleDeleteBudget(item.budgetId, item.categoryName);
                   }}
                   style={styles.actionButton}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} // Increase touch area
                 >
                   <MaterialIcons
                     name="delete-outline"
                     size={22}
-                    color="#D32F2F"
+                    color="#D32F2F" // Red color for delete
                   />
                 </TouchableOpacity>
               ) : (
+                // Render a placeholder to maintain layout consistency
                 <View style={styles.actionButtonPlaceholder} />
               )}
             </View>
@@ -519,6 +568,17 @@ const BudgetsScreen = () => {
 
   // Renders the main content area (Loading, Error, or List)
   const renderContent = () => {
+    // Show message if user is not logged in (and auth check is done)
+    if (!currentUser && !isLoadingBudgets && !isLoadingUserCategories) {
+      return (
+        <View style={styles.centeredStateContainer}>
+          <MaterialIcons name="login" size={40} color="#888" />
+          <Text style={styles.centeredStateText}>
+            {errorBudgets || "Please log in."}
+          </Text>
+        </View>
+      );
+    }
     if (isLoadingBudgets || isLoadingUserCategories) {
       return (
         <View style={styles.centeredStateContainer}>
@@ -584,6 +644,7 @@ const BudgetsScreen = () => {
           onRequestClose={closeModal}
         >
           <View style={styles.modalBackdrop}>
+            {/* Use ScrollView to help with keyboard covering input */}
             <ScrollView
               contentContainerStyle={styles.modalScrollViewContainer}
               keyboardShouldPersistTaps="handled"
@@ -621,11 +682,18 @@ const BudgetsScreen = () => {
                     style={[
                       styles.modalButton,
                       styles.modalSaveButton,
-                      (!budgetLimit || parseFloat(budgetLimit) <= 0) &&
+                      // Disable if no user or invalid limit
+                      (!currentUser ||
+                        !budgetLimit ||
+                        parseFloat(budgetLimit) <= 0) &&
                         styles.modalSaveButtonDisabled,
                     ]}
                     onPress={handleSaveBudget}
-                    disabled={!budgetLimit || parseFloat(budgetLimit) <= 0}
+                    disabled={
+                      !currentUser ||
+                      !budgetLimit ||
+                      parseFloat(budgetLimit) <= 0
+                    }
                   >
                     <Text style={styles.modalSaveButtonText}>
                       {isEditMode ? "Update Limit" : "Set Limit"}
@@ -650,7 +718,7 @@ const BudgetsScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f0f0f0",
+    backgroundColor: "#f0f0f0", // Light grey background
   },
   content: {
     flex: 1,
@@ -674,12 +742,12 @@ const styles = StyleSheet.create({
   },
   budgetListContent: {
     paddingHorizontal: 15, // Keep padding for items
-    paddingBottom: 90,
+    paddingBottom: 90, // Space for FAB and bottom nav
   },
   touchableItem: {
     marginBottom: 12,
     borderRadius: 8,
-    backgroundColor: "#fff",
+    backgroundColor: "#fff", // White background for items
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -692,25 +760,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 15,
     paddingLeft: 15,
-    paddingRight: 10,
-    borderRadius: 8,
+    paddingRight: 10, // Reduced right padding to bring delete icon closer
+    borderRadius: 8, // Match touchableItem
   },
   budgetIconContainer: {
     width: 45,
     height: 45,
     borderRadius: 22.5,
-    backgroundColor: "#e0f2e0",
+    backgroundColor: "#e0f2e0", // Light green background
     justifyContent: "center",
     alignItems: "center",
     marginRight: 15,
   },
   budgetIcon: {
-    color: "#006400",
+    color: "#006400", // Dark green icon
   },
   budgetDetails: {
-    flex: 1,
-    marginRight: 10,
-    justifyContent: "center",
+    flex: 1, // Take available space
+    marginRight: 10, // Space before action button
+    justifyContent: "center", // Vertically center text
   },
   budgetCategoryTitle: {
     fontSize: 16,
@@ -720,26 +788,27 @@ const styles = StyleSheet.create({
   },
   budgetInfoText: {
     fontSize: 14,
-    color: "#006400",
+    color: "#006400", // Green for set limit
     fontWeight: "500",
     marginTop: 2,
   },
   budgetInfoTextMuted: {
     fontSize: 13,
-    color: "#888",
+    color: "#888", // Grey for placeholder text
     marginTop: 2,
     fontStyle: "italic",
   },
   budgetActions: {
     justifyContent: "center",
     alignItems: "center",
-    minWidth: 38,
+    minWidth: 38, // Ensure space for the button
   },
   actionButton: {
-    padding: 8,
+    padding: 8, // Make touch area slightly larger
   },
   actionButtonPlaceholder: {
-    width: 38,
+    // To maintain layout when delete button isn't shown
+    width: 38, // Match approx width of the icon + padding
     height: 38,
   },
   centeredStateContainer: {
@@ -747,7 +816,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
-    marginTop: -50,
+    marginTop: -50, // Adjust to roughly center vertically
   },
   centeredStateText: {
     fontSize: 17,
@@ -762,10 +831,10 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: "absolute",
-    bottom: 70,
+    bottom: 70, // Adjusted for bottom nav bar
     right: 20,
-    backgroundColor: "#0F730C",
-    width: 56,
+    backgroundColor: "#0F730C", // Dark green
+    width: 56, // Standard FAB size
     height: 56,
     borderRadius: 28,
     justifyContent: "center",
@@ -776,6 +845,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowRadius: 4,
   },
+  // --- Modal Styles ---
   modalBackdrop: {
     flex: 1,
     justifyContent: "center",
@@ -783,10 +853,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.6)",
   },
   modalScrollViewContainer: {
+    // Allows modal content to scroll if keyboard appears
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 40,
+    paddingVertical: 40, // Add padding for spacing
     width: "100%",
   },
   modalContainer: {
@@ -795,7 +866,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderRadius: 10,
     padding: 25,
-    alignItems: "stretch",
+    alignItems: "stretch", // Stretch children like input
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -805,14 +876,14 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: "bold",
-    color: "#006400",
+    color: "#006400", // Dark green title
     marginBottom: 20,
     textAlign: "center",
   },
   modalCategoryDisplay: {
     marginBottom: 20,
     padding: 10,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#f8f9fa", // Light background for category display
     borderRadius: 6,
     borderWidth: 1,
     borderColor: "#eee",
@@ -836,8 +907,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     marginBottom: 25,
-    fontSize: 18,
-    backgroundColor: "#f9f9f9",
+    fontSize: 18, // Slightly larger for input
+    backgroundColor: "#f9f9f9", // Light background for input
     color: "#333",
   },
   modalButtons: {
@@ -846,11 +917,11 @@ const styles = StyleSheet.create({
     marginTop: 15,
   },
   modalButton: {
-    flex: 1,
+    flex: 1, // Equal width
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",
-    marginHorizontal: 5,
+    marginHorizontal: 5, // Space between buttons
   },
   modalCancelButton: {
     backgroundColor: "#f8f9fa",
@@ -858,12 +929,12 @@ const styles = StyleSheet.create({
     borderColor: "#ced4da",
   },
   modalSaveButton: {
-    backgroundColor: "#DAA520",
+    backgroundColor: "#DAA520", // Gold color
     borderWidth: 1,
     borderColor: "#DAA520",
   },
   modalSaveButtonDisabled: {
-    backgroundColor: "#e9d8a1",
+    backgroundColor: "#e9d8a1", // Lighter gold when disabled
     borderColor: "#e9d8a1",
     opacity: 0.7,
   },

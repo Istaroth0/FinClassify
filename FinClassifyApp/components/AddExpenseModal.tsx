@@ -11,11 +11,9 @@ import {
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { MaterialCommunityIcons as IconType } from "@expo/vector-icons";
-import { getFirestore, doc, setDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc } from "firebase/firestore"; // Keep setDoc
+import { getAuth } from "firebase/auth"; // Import getAuth
 import { app } from "../app/firebase"; // Adjust path as needed
-
-// Initialize Firestore
-const db = getFirestore(app);
 
 // Hardcoded User ID
 const HARDCODED_USER_ID = "User";
@@ -39,6 +37,10 @@ const DEFAULT_ICONS: Array<{
   { name: "train", key: "travel" },
 ];
 
+// Initialize Firestore & Auth
+const db = getFirestore(app);
+const auth = getAuth(app);
+
 // --- Interface (userId prop is now less relevant but kept for structure) ---
 interface AddCategoryModalProps {
   visible: boolean;
@@ -48,22 +50,27 @@ interface AddCategoryModalProps {
     icon: string;
     description?: string | null;
   }) => void;
-  userId?: string | null; // Prop received but we'll use the hardcoded one
+  // userId prop is no longer needed
 }
 
 export default function AddCategoryModal({
   visible,
   onClose,
   onSave,
-}: // userId prop is received but not strictly needed for saving anymore
-AddCategoryModalProps) {
+}: AddCategoryModalProps) {
   const [selectedIcon, setSelectedIcon] = useState(DEFAULT_ICONS[0].name);
   const [categoryName, setCategoryName] = useState("");
   const [description, setDescription] = useState("");
 
   // --- Updated handleSave to use hardcoded userId ---
   const handleSave = async () => {
-    const userId = HARDCODED_USER_ID; // Use hardcoded ID
+    // Get current user ID
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      Alert.alert("Error", "You must be logged in to save a category.");
+      return;
+    }
+    const userId = currentUser.uid;
 
     const trimmedName = categoryName.trim();
     const trimmedDescription = description.trim();
@@ -80,8 +87,7 @@ AddCategoryModalProps) {
     };
 
     try {
-      // Use the nested path with hardcoded userId
-      // Corrected path: "Accounts"
+      // Use the nested path with the actual userId
       const categoryDocRef = doc(
         db,
         "Accounts",

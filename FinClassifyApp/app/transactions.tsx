@@ -30,16 +30,14 @@ import {
   orderBy,
   Timestamp,
 } from "firebase/firestore";
+import { getAuth, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
 import { app } from "../app/firebase";
 // Import debounce (optional but recommended for better performance)
 // You might need to install lodash: npm install lodash @types/lodash
 // import { debounce } from 'lodash';
 
-// Initialize Firestore
 const db = getFirestore(app);
-
-// Hardcoded User ID
-const HARDCODED_USER_ID = "User";
+const auth = getAuth(app); // Initialize Firebase Auth
 
 // --- Interfaces ---
 interface Category {
@@ -283,6 +281,7 @@ export default function TransactionScreen() {
   const [transactionType, setTransactionType] = useState<"Expenses" | "Income">(
     "Expenses"
   );
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   const [incomeCategories, setIncomeCategories] = useState<Category[]>(
     initialIncomeCategories
   );
@@ -308,13 +307,28 @@ export default function TransactionScreen() {
     null
   );
 
-  // --- Fetch Categories from Firestore (Keep existing useEffect) ---
+  // --- Listen for Auth State Changes ---
   useEffect(() => {
-    // ... (existing category fetching logic remains the same) ...
-    const userId = HARDCODED_USER_ID;
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (!user) {
+        // Handle user not logged in (e.g., show message, disable saving)
+        console.log("Transactions: No user logged in.");
+        setErrorAccounts("Login required to add transactions."); // Use existing error state
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
 
+  // --- Fetch Categories from Firestore ---
+  useEffect(() => {
     // Fetch Income Categories
-    const incomeCollectionRef = collection(db, "Accounts", userId, "Income");
+    const incomeCollectionRef = collection(
+      db,
+      "Accounts",
+      currentUser?.uid || "__nouser__", // Use optional chaining or placeholder
+      "Income"
+    );
     const incomeQuery = query(incomeCollectionRef, orderBy("name"));
     const unsubscribeIncome = onSnapshot(
       incomeQuery,
@@ -350,7 +364,12 @@ export default function TransactionScreen() {
     );
 
     // Fetch Expense Categories
-    const expenseCollectionRef = collection(db, "Accounts", userId, "Expenses");
+    const expenseCollectionRef = collection(
+      db,
+      "Accounts",
+      currentUser?.uid || "__nouser__", // Use optional chaining or placeholder
+      "Expenses"
+    );
     const expenseQuery = query(expenseCollectionRef, orderBy("name"));
     const unsubscribeExpenses = onSnapshot(
       expenseQuery,
@@ -390,19 +409,19 @@ export default function TransactionScreen() {
       unsubscribeIncome(); // Unsubscribe income listener
       unsubscribeExpenses();
     };
-  }, []);
+  }, [currentUser]); // Re-run if user changes
 
-  // --- Fetch Accounts (Keep existing useEffect) ---
+  // --- Fetch Accounts ---
   useEffect(() => {
-    // ... (existing account fetching logic remains the same) ...
+    if (!currentUser) return; // Don't fetch if no user
+
     setIsLoadingAccounts(true);
     setErrorAccounts(null);
-    const userId = HARDCODED_USER_ID;
 
     const accountsCollectionRef = collection(
       db,
       "Accounts",
-      userId,
+      currentUser.uid, // Use actual user UID
       "accounts"
     );
     const q = query(accountsCollectionRef, orderBy("title"));
@@ -441,18 +460,16 @@ export default function TransactionScreen() {
     );
 
     return () => unsubscribeAccounts();
-  }, []);
+  }, [currentUser]); // Re-run if user changes
 
-  // --- handleAddCategory (Keep existing) ---
+  // --- handleAddCategory ---
   const handleAddCategory = (newCategoryData: {
     name: string;
     icon: string;
     description?: string | null;
   }) => {
     setIsAddCategoryModalVisible(false);
-    // Optionally, you could immediately add the category to the state
-    // to avoid waiting for the Firestore listener, but the listener
-    // is generally the more robust approach.
+    // Firestore listener will update the state automatically
   };
 
   // Update currentCategories based on transactionType
@@ -490,7 +507,14 @@ export default function TransactionScreen() {
 
   // --- handleSaveAmount (Updated to include description) ---
   const handleSaveAmount = async () => {
-    const userId = HARDCODED_USER_ID;
+    if (!currentUser) {
+      Alert.alert(
+        "Login Required",
+        "You must be logged in to save transactions."
+      );
+      return;
+    }
+    const userId = currentUser.uid; // Use the actual user ID
     const transactionAmount = parseFloat(amount);
 
     // --- Input Validations ---
@@ -606,7 +630,7 @@ export default function TransactionScreen() {
     }
   };
 
-  // --- Header Button Handlers (Keep existing) ---
+  // --- Header Button Handlers ---
   const handleCancel = () => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -623,7 +647,7 @@ export default function TransactionScreen() {
   // --- JSX ---
   return (
     <View style={styles.container}>
-      {/* --- Stack Screen Options (Keep existing) --- */}
+      {/* --- Stack Screen Options --- */}
       <Stack.Screen
         options={{
           headerLeft: () => (
@@ -650,7 +674,7 @@ export default function TransactionScreen() {
         }}
       />
 
-      {/* --- Type Selector (Keep existing) --- */}
+      {/* --- Type Selector --- */}
       <View style={styles.typeSelector}>
         <TouchableOpacity
           style={[
@@ -751,20 +775,18 @@ export default function TransactionScreen() {
         </View>
       </ScrollView>
 
-      {/* --- Conditionally Render Add Category Modals (Keep existing) --- */}
+      {/* --- Conditionally Render Add Category Modals --- */}
       {transactionType === "Income" ? (
         <AddIncomeCategoryModal
           visible={isAddCategoryModalVisible}
           onClose={() => setIsAddCategoryModalVisible(false)}
-          onSave={handleAddCategory}
-          userId={HARDCODED_USER_ID}
+          onSave={handleAddCategory} // Pass user ID to modal if needed
         />
       ) : (
         <AddExpenseCategoryModal
           visible={isAddCategoryModalVisible}
-          onClose={() => setIsAddCategoryModalVisible(false)}
+          onClose={() => setIsAddCategoryModalVisible(false)} // Pass user ID to modal if needed
           onSave={handleAddCategory}
-          userId={HARDCODED_USER_ID}
         />
       )}
 
@@ -837,7 +859,7 @@ export default function TransactionScreen() {
               />
               {/* --- End Description Input --- */}
 
-              {/* Account Selection (Keep existing) */}
+              {/* Account Selection */}
               <Text style={styles.amountLabel}>Account:</Text>
               {isLoadingAccounts ? (
                 <ActivityIndicator
@@ -885,7 +907,7 @@ export default function TransactionScreen() {
               )}
               {/* --- End Account Selection --- */}
 
-              {/* Modal Buttons (Keep existing) */}
+              {/* Modal Buttons */}
               <View style={styles.amountModalButtons}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.cancelButton]}
@@ -897,14 +919,16 @@ export default function TransactionScreen() {
                   style={[
                     styles.modalButton,
                     styles.saveButton,
-                    // Disable save if loading, no accounts, or no category selected/suggested
+                    // Disable save if no user, loading, no accounts, or no category selected/suggested
                     (isLoadingAccounts ||
                       accountsList.length === 0 ||
-                      (!selectedCategoryForAmount && !suggestedCategoryId)) &&
+                      (!selectedCategoryForAmount && !suggestedCategoryId) ||
+                      !currentUser) &&
                       styles.saveButtonDisabled,
                   ]}
                   onPress={handleSaveAmount}
                   disabled={
+                    !currentUser || // Disable if no user
                     isLoadingAccounts ||
                     accountsList.length === 0 ||
                     (!selectedCategoryForAmount && !suggestedCategoryId)

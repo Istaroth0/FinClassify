@@ -22,14 +22,13 @@ import {
   Timestamp,
   where, // Import where
 } from "firebase/firestore";
+import { getAuth, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
 import { app } from "../app/firebase";
 import { useDateContext } from "./context/DateContext"; // Import the context hook
 
 // Initialize Firestore
 const db = getFirestore(app);
-
-// Hardcoded User ID
-const HARDCODED_USER_ID = "User";
+const auth = getAuth(app); // Initialize Firebase Auth
 
 // Interface for Firestore transaction data
 interface Transaction {
@@ -84,6 +83,7 @@ const HistoryScreen = () => {
   const navigation = useNavigation();
   const { selectedYear, selectedMonth } = useDateContext(); // Get date from context
 
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,16 +92,27 @@ const HistoryScreen = () => {
     navigation.navigate("transactions" as never);
   };
 
+  // --- Listen for Auth State Changes ---
   useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (!user) {
+        console.log("Record: No user logged in.");
+        setLoading(false);
+        setError("Please log in to view records.");
+        setTransactions([]); // Clear records if user logs out
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  // --- Fetch Transactions based on User and Date Context ---
+  useEffect(() => {
+    if (!currentUser) return; // Don't fetch if no user
+
     setLoading(true);
     setError(null);
-    const userId = HARDCODED_USER_ID;
-
-    if (!userId) {
-      setError("User not identified.");
-      setLoading(false);
-      return;
-    }
+    setTransactions([]); // Clear previous transactions
 
     // --- Calculate date range based on context ---
     const monthNumber = getMonthNumber(selectedMonth);
@@ -119,7 +130,7 @@ const HistoryScreen = () => {
     const transactionsCollectionRef = collection(
       db,
       "Accounts",
-      userId,
+      currentUser.uid, // Use actual user UID
       "transactions"
     );
 
@@ -187,10 +198,19 @@ const HistoryScreen = () => {
     );
 
     return () => unsubscribe();
-  }, [selectedYear, selectedMonth]); // Add selectedYear and selectedMonth as dependencies
+  }, [currentUser, selectedYear, selectedMonth]); // Re-run if user or date changes
 
   // --- renderContent (Grouping and rendering logic remains the same) ---
   const renderContent = () => {
+    // Show message if user is not logged in (and auth check is done)
+    if (!currentUser && !loading) {
+      return (
+        <View style={styles.centered}>
+          <MaterialIcons name="login" size={40} color="#888" />
+          <Text style={styles.infoText}>{error || "Please log in."}</Text>
+        </View>
+      );
+    }
     if (loading) {
       return (
         <View style={styles.centered}>

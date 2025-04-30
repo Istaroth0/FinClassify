@@ -1,13 +1,39 @@
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons"; // Or any other icon library
+import { getAuth, signOut, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
+import { useRouter } from "expo-router";
+import { app } from "./firebase"; // Import your Firebase app instance
+
+const auth = getAuth(app);
 
 const ProfilePage = () => {
+  const router = useRouter();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Listen for auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setIsLoading(false);
+    });
+    return () => unsubscribe(); // Cleanup listener
+  }, []);
+
   return (
     <View style={styles.container}>
       {/* Top Bar */}
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => console.log("Back")}>
+        <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
         <Text style={styles.title}>Profile</Text>
@@ -16,38 +42,55 @@ const ProfilePage = () => {
 
       {/* Profile Header */}
       <View style={styles.header}>
-        {/* Temporary Photo Placeholder */}
-        <View style={styles.photoPlaceholder}>
-          <Ionicons name="person-circle-outline" size={80} color="#888" />
-          {/* You can replace the Icon with an Image component later */}
-          {/* <Image source={{ uri: 'your_image_url' }} style={styles.profileImage} /> */}
-        </View>
+        {isLoading ? (
+          <ActivityIndicator size="large" color="#006400" />
+        ) : currentUser ? (
+          <>
+            {/* Profile Photo */}
+            <View style={styles.photoPlaceholder}>
+              {currentUser.photoURL ? (
+                <Image
+                  source={{ uri: currentUser.photoURL }}
+                  style={styles.profileImage}
+                />
+              ) : (
+                <Ionicons name="person-circle-outline" size={80} color="#888" />
+              )}
+            </View>
 
-        {/* Name */}
-        <Text style={styles.name}>Your Name Here</Text>
+            {/* Name */}
+            <Text style={styles.name}>
+              {currentUser.displayName || "User Name"}
+            </Text>
 
-        {/* Info Section */}
-        <View style={styles.infoContainer}>
-          <View style={styles.infoItem}>
-            <Ionicons
-              name="mail-outline"
-              size={20}
-              color="#555"
-              style={styles.infoIcon}
-            />
-            <Text style={styles.infoText}>your.email@example.com</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Ionicons
-              name="call-outline"
-              size={20}
-              color="#555"
-              style={styles.infoIcon}
-            />
-            <Text style={styles.infoText}>+63 9XX XXX XXXX</Text>
-          </View>
-          {/* Add more info items as needed */}
-        </View>
+            {/* Info Section */}
+            <View style={styles.infoContainer}>
+              <View style={styles.infoItem}>
+                <Ionicons
+                  name="mail-outline"
+                  size={20}
+                  color="#555"
+                  style={styles.infoIcon}
+                />
+                <Text style={styles.infoText}>{currentUser.email}</Text>
+              </View>
+              {/* Add phone number if available */}
+              {currentUser.phoneNumber && (
+                <View style={styles.infoItem}>
+                  <Ionicons
+                    name="call-outline"
+                    size={20}
+                    color="#555"
+                    style={styles.infoIcon}
+                  />
+                  <Text style={styles.infoText}>{currentUser.phoneNumber}</Text>
+                </View>
+              )}
+            </View>
+          </>
+        ) : (
+          <Text style={styles.infoText}>Not Logged In</Text>
+        )}
       </View>
 
       {/* Additional Sections (Like in the example image) */}
@@ -78,7 +121,23 @@ const ProfilePage = () => {
           {/* Add more preferences */}
         </View>
 
-        <TouchableOpacity style={styles.logoutButton}>
+        <TouchableOpacity
+          style={[styles.logoutButton, !currentUser && styles.disabledButton]}
+          onPress={async () => {
+            if (!currentUser) return;
+            try {
+              await signOut(auth);
+              router.replace("/"); // Redirect to login after logout
+            } catch (error) {
+              console.error("Logout Error:", error);
+              Alert.alert(
+                "Logout Failed",
+                "Could not log out. Please try again."
+              );
+            }
+          }}
+          disabled={!currentUser}
+        >
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </View>
@@ -184,6 +243,10 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 18,
     fontWeight: "bold",
+  },
+  disabledButton: {
+    backgroundColor: "#aaa", // Grey out disabled button
+    opacity: 0.7,
   },
 });
 
