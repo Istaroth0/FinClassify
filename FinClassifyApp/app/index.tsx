@@ -329,49 +329,6 @@ const AuthScreen = () => {
             <Text style={styles.orContinueText}>Or continue with</Text>
 
             {/* --- Social Login Buttons --- */}
-            <View style={styles.socialIcons}>
-              {/* Facebook (Placeholder) */}
-              <TouchableOpacity
-                onPress={() => console.log("Facebook Login (Not Implemented)")}
-                disabled={isLoading}
-              >
-                <Image
-                  source={require("../assets/images/facebook.png")}
-                  style={styles.icon}
-                />
-              </TouchableOpacity>
-              {/* Apple (Placeholder - iOS only) */}
-              {Platform.OS === "ios" && ( // Conditionally render for iOS
-                <TouchableOpacity
-                  onPress={() => console.log("Apple Login (Not Implemented)")}
-                  disabled={isLoading}
-                >
-                  <Image
-                    source={require("../assets/images/apple.png")}
-                    style={styles.icon}
-                  />
-                </TouchableOpacity>
-              )}
-              {/* Google */}
-              <TouchableOpacity
-                onPress={onGoogleButtonPress}
-                disabled={isLoading}
-              >
-                {/* Show loader specifically for Google button */}
-                {isGoogleLoading ? (
-                  <ActivityIndicator
-                    size="large" // Use large for icon replacement
-                    color="#DB4437" // Google Red
-                    style={styles.icon} // Use icon style for size/spacing
-                  />
-                ) : (
-                  <Image
-                    source={require("../assets/images/google (1).png")}
-                    style={styles.icon}
-                  />
-                )}
-              </TouchableOpacity>
-            </View>
           </View>
         </ScrollView>
       </TouchableWithoutFeedback>

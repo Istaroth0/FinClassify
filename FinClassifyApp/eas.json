@@ -1,21 +1,31 @@
 {
   "cli": {
-    "version": ">= 16.3.2",
-    "appVersionSource": "remote"
+    "version": ">= 5.9.3" // It's good practice to specify the CLI version
   },
   "build": {
     "development": {
-      "developmentClient": true,
-      "distribution": "internal"
-    },
-    "preview": {
-      "distribution": "internal"
+      // Renamed and combined preview profiles
+      "developmentClient": true, // From preview3
+      "distribution": "internal", // From preview4
+      "android": {
+        "buildType": "apk", // From preview
+        "gradleCommand": ":app:assembleRelease" // From preview2
+        // "workingDirectory": "FinClassifyApp" // Remove this line
+      },
+      "ios": {
+        // Add iOS specific settings if needed
+        // "workingDirectory": "FinClassifyApp" // Remove this line
+      }
     },
     "production": {
-      "autoIncrement": true
+      "android": {
+        // Add Android production settings if needed
+        // "workingDirectory": "FinClassifyApp" // Remove this line
+      },
+      "ios": {
+        // Add iOS production settings if needed
+        // "workingDirectory": "FinClassifyApp" // Remove this line
+      }
     }
-  },
-  "submit": {
-    "production": {}
   }
 }

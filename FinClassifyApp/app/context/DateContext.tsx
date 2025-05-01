@@ -1,74 +1,75 @@
-// contexts/DateContext.tsx
+// c:\Users\scubo\OneDrive\Documents\FC_proj\FinClassify\FinClassifyApp\app\context\DateContext.tsx
 import React, {
   createContext,
   useState,
   useContext,
-  ReactNode,
   useMemo,
+  ReactNode,
 } from "react";
 
+// Define the type for the filter
+export type TimeFilter = "Daily" | "Weekly" | "Monthly";
+
+// Define the shape of the context data including the filter
 interface DateContextType {
+  // Renamed interface for clarity
   selectedYear: number;
   selectedMonth: string; // e.g., "Jan", "Feb"
+  selectedFilter: TimeFilter; // Add filter state
   setSelectedYear: (year: number) => void;
   setSelectedMonth: (month: string) => void;
-  selectedDateString: string; // e.g., "2024 Jan"
+  setSelectedFilter: (filter: TimeFilter) => void; // Add filter setter
+  selectedDateString: string; // Formatted string like "Jan 2024"
 }
 
-// Helper to get current date parts
-const getCurrentDateParts = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const monthIndex = now.getMonth();
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const month = months[monthIndex];
-  return { year, month };
-};
+// Create the context with a default value matching the interface
+const DateContext = createContext<DateContextType>({
+  selectedYear: new Date().getFullYear(),
+  selectedMonth: new Date().toLocaleString("default", { month: "short" }),
+  selectedFilter: "Monthly", // Default filter
+  setSelectedYear: () => {},
+  setSelectedMonth: () => {},
+  setSelectedFilter: () => {},
+  selectedDateString: `${new Date().toLocaleString("default", {
+    month: "short",
+  })} ${new Date().getFullYear()}`,
+});
 
-const { year: initialYear, month: initialMonth } = getCurrentDateParts();
+// Create the provider component
+export const DateProvider: React.FC<{ children: ReactNode }> = ({
+  children,
+}) => {
+  const currentMonthName = new Date().toLocaleString("default", {
+    month: "short",
+  });
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthName);
+  const [selectedFilter, setSelectedFilter] = useState<TimeFilter>("Monthly"); // Add filter state
 
-// Create the context with a default value (can be undefined or initial state)
-const DateContext = createContext<DateContextType | undefined>(undefined);
+  // Memoize the formatted date string to prevent unnecessary recalculations
+  const selectedDateString = useMemo(() => {
+    return `${selectedMonth} ${selectedYear}`;
+  }, [selectedMonth, selectedYear]);
 
-// Create a provider component
-interface DateProviderProps {
-  children: ReactNode;
-}
-
-export const DateProvider: React.FC<DateProviderProps> = ({ children }) => {
-  const [selectedYear, setSelectedYear] = useState<number>(initialYear);
-  const [selectedMonth, setSelectedMonth] = useState<string>(initialMonth);
-
-  // Memoize the context value to prevent unnecessary re-renders
-  const value = useMemo(() => {
-    const selectedDateString = `${selectedYear} ${selectedMonth}`;
-    return {
+  // Memoize the context value including filter state and setter
+  const value = useMemo(
+    () => ({
       selectedYear,
       selectedMonth,
       setSelectedYear,
       setSelectedMonth,
       selectedDateString,
-    };
-  }, [selectedYear, selectedMonth]);
+      selectedFilter, // Provide filter state
+      setSelectedFilter, // Provide filter setter
+    }),
+    [selectedYear, selectedMonth, selectedDateString, selectedFilter] // Add filter to dependencies
+  );
 
   return <DateContext.Provider value={value}>{children}</DateContext.Provider>;
 };
 
-// Create a custom hook to use the context easily
-export const useDateContext = (): DateContextType => {
+// Custom hook to use the DateContext
+export const useDateContext = () => {
   const context = useContext(DateContext);
   if (context === undefined) {
     throw new Error("useDateContext must be used within a DateProvider");
