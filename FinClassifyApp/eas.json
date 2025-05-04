@@ -1,0 +1,31 @@
+{
+  "cli": {
+    "version": ">= 5.9.3" // It's good practice to specify the CLI version
+  },
+  "build": {
+    "development": {
+      // Renamed and combined preview profiles
+      "developmentClient": true, // From preview3
+      "distribution": "internal", // From preview4
+      "android": {
+        "buildType": "apk", // From preview
+        "gradleCommand": ":app:assembleRelease" // From preview2
+        // "workingDirectory": "FinClassifyApp" // Remove this line
+      },
+      "ios": {
+        // Add iOS specific settings if needed
+        // "workingDirectory": "FinClassifyApp" // Remove this line
+      }
+    },
+    "production": {
+      "android": {
+        // Add Android production settings if needed
+        // "workingDirectory": "FinClassifyApp" // Remove this line
+      },
+      "ios": {
+        // Add iOS production settings if needed
+        // "workingDirectory": "FinClassifyApp" // Remove this line
+      }
+    }
+  }
+}
