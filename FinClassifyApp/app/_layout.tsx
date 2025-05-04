@@ -1,4 +1,4 @@
-// app/_layout.tsx - Make sure the filename starts with an underscore!
+// c:\Users\scubo\OneDrive\Documents\FC_proj\FinClassify\FinClassifyApp\app\_layout.tsx
 import React from "react";
 import { Stack } from "expo-router";
 // Path relative from app/_layout.tsx to app/context/DateContext.tsx
@@ -8,10 +8,15 @@ export default function RootLayout() {
   return (
     // DateProvider wraps the entire navigation stack
     <DateProvider>
-      <Stack>
+      <Stack
+        screenOptions={{
+          animation: "none", // Disable animations for all screens in this stack
+        }}
+      >
         {/* All screens within this Stack can now use useDateContext */}
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="record" options={{ headerShown: false }} />
+        {/* Note: 'modal' presentation might still have its own default animation */}
         <Stack.Screen name="transactions" options={{ presentation: "modal" }} />
         <Stack.Screen name="Accounts" options={{ headerShown: false }} />
         <Stack.Screen name="CreateAccounts" />

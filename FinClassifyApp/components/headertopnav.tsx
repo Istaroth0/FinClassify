@@ -6,11 +6,14 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
-  Animated,
+  Animated, // Import Animated
   Dimensions,
   FlatList,
   Platform,
   ActivityIndicator,
+  Image, // Added for ProfilePage
+  TouchableWithoutFeedback, // <-- Add TouchableWithoutFeedback
+  Alert, // Added for ProfilePage
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -22,9 +25,15 @@ import {
   Timestamp,
   orderBy,
 } from "firebase/firestore";
-import { getAuth, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
+import {
+  getAuth,
+  onAuthStateChanged,
+  User,
+  signOut, // Added for ProfilePage logout
+} from "firebase/auth";
 import { app } from "../app/firebase"; // Adjust path if needed
 import { useDateContext } from "../app/context/DateContext"; // Import the context hook
+import { useRouter } from "expo-router"; // <-- Import useRouter
 
 const { width, height } = Dimensions.get("window");
 const db = getFirestore(app);
@@ -39,11 +48,10 @@ interface AccountForIncome {
 
 // --- Helper Functions ---
 const formatCurrency = (amount: number): string => {
-  // Handle potential NaN or non-finite numbers gracefully
   if (isNaN(amount) || !isFinite(amount)) {
     return "₱ 0.00";
   }
-  const prefix = amount < 0 ? "-₱" : "₱"; // Handle negative sign
+  const prefix = amount < 0 ? "-₱" : "₱";
   return `${prefix}${Math.abs(amount)
     .toFixed(2)
     .replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
@@ -70,16 +78,148 @@ const getMonthNumber = (monthName: string): number => {
 
 type TimeFilter = "Daily" | "Weekly" | "Monthly";
 
+// --- Embedded Profile Page Component Logic ---
+interface ProfileModalContentProps {
+  onClose: () => void;
+}
+
+const ProfileModalContent = ({ onClose }: ProfileModalContentProps) => {
+  const [profileUser, setProfileUser] = useState<User | null>(null);
+  const router = useRouter(); // <-- Get router instance
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribeProfileAuth = onAuthStateChanged(auth, (user) => {
+      setProfileUser(user);
+      setIsProfileLoading(false);
+    });
+    return () => unsubscribeProfileAuth();
+  }, []);
+
+  const handleLogout = async () => {
+    if (!profileUser) return;
+    try {
+      await signOut(auth);
+      onClose();
+      // Alert.alert("Logged Out", "You have been successfully logged out."); // Optional: Remove alert if redirecting immediately
+      router.replace("/"); // <-- Add navigation to login page
+    } catch (error) {
+      console.error("Logout Error:", error);
+      Alert.alert("Logout Failed", "Could not log out. Please try again.");
+    }
+  };
+
+  return (
+    <View style={styles.profileContainer}>
+      {/* Top Bar */}
+      <View style={styles.profileTopBar}>
+        <TouchableOpacity onPress={onClose}>
+          <Ionicons name="arrow-back" size={24} color="white" />
+        </TouchableOpacity>
+        <Text style={styles.profileTitle}>Profile</Text>
+        <View /> {/* Spacer */}
+      </View>
+
+      {/* Profile Header */}
+      <View style={styles.profileHeader}>
+        {isProfileLoading ? (
+          <ActivityIndicator size="large" color="#006400" />
+        ) : profileUser ? (
+          <>
+            <View style={styles.profilePhotoPlaceholder}>
+              {profileUser.photoURL ? (
+                <Image
+                  source={{ uri: profileUser.photoURL }}
+                  style={styles.profileImage}
+                />
+              ) : (
+                <Ionicons name="person-circle-outline" size={80} color="#888" />
+              )}
+            </View>
+            <Text style={styles.profileName}>
+              {profileUser.displayName || "User Name"}
+            </Text>
+            <View style={styles.profileInfoContainer}>
+              <View style={styles.profileInfoItem}>
+                <Ionicons
+                  name="mail-outline"
+                  size={20}
+                  color="#555"
+                  style={styles.profileInfoIcon}
+                />
+                <Text style={styles.profileInfoText}>{profileUser.email}</Text>
+              </View>
+              {profileUser.phoneNumber && (
+                <View style={styles.profileInfoItem}>
+                  <Ionicons
+                    name="call-outline"
+                    size={20}
+                    color="#555"
+                    style={styles.profileInfoIcon}
+                  />
+                  <Text style={styles.profileInfoText}>
+                    {profileUser.phoneNumber}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </>
+        ) : (
+          <Text style={styles.profileInfoText}>Not Logged In</Text>
+        )}
+      </View>
+
+      {/* Additional Sections */}
+      <View style={styles.profileContent}>
+        <View style={styles.profileSection}>
+          <Text style={styles.profileSectionTitle}>Account Settings</Text>
+          <TouchableOpacity style={styles.profileListItem}>
+            <Text>Change Password</Text>
+            <Ionicons name="chevron-forward-outline" size={20} color="#888" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.profileListItem}>
+            <Text>Notifications</Text>
+            <Ionicons name="chevron-forward-outline" size={20} color="#888" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.profileSection}>
+          <Text style={styles.profileSectionTitle}>Preferences</Text>
+          <TouchableOpacity style={styles.profileListItem}>
+            <Text>Currency</Text>
+            <Text>PHP</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.profileListItem}>
+            <Text>Language</Text>
+            <Text>English</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={[
+            styles.profileLogoutButton,
+            !profileUser && styles.profileDisabledButton,
+          ]}
+          onPress={handleLogout}
+          disabled={!profileUser || isProfileLoading}
+        >
+          <Text style={styles.profileLogoutText}>Logout</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+// --- End Embedded Profile Page ---
+
 const Header = () => {
-  // Use the context for date state and setters
   const {
     selectedYear,
     selectedMonth,
     setSelectedYear,
     setSelectedMonth,
-    selectedFilter, // Get filter from context
-    setSelectedFilter, // Get filter setter from context
-    selectedDateString, // Use the string from context
+    selectedFilter,
+    setSelectedFilter,
+    selectedDateString,
   } = useDateContext();
 
   const currentYear = new Date().getFullYear();
@@ -98,19 +238,17 @@ const Header = () => {
     "Dec",
   ];
 
-  // Local state for UI control (modals, menu)
-  const [isMenuVisible, setMenuVisible] = useState(false);
-  const slideAnim = useRef(new Animated.Value(-width)).current;
+  // Local state for UI control (modals)
+  // Removed side menu state: const [isMenuVisible, setMenuVisible] = useState(false);
+  // Removed animation ref: const slideAnim = useRef(new Animated.Value(-width)).current;
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
-
-  // Remove local filter state - use context state instead
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
+  const [isProfileModalVisible, setProfileModalVisible] = useState(false); // State for Profile Modal
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  // State for totals and loading
   const [totalIncome, setTotalIncome] = useState(0);
   const [totalExpenses, setTotalExpenses] = useState(0);
-  const [netTotal, setNetTotal] = useState(0); // Calculated as income - expenses
+  const [netTotal, setNetTotal] = useState(0);
   const [isLoadingTotals, setIsLoadingTotals] = useState(true);
   const [errorTotals, setErrorTotals] = useState<string | null>(null);
   const [accountIncomeData, setAccountIncomeData] = useState<
@@ -118,14 +256,16 @@ const Header = () => {
   >([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
 
-  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i); // For year picker
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i);
+
+  // --- Animation State for Profile Modal ---
+  const slideAnimX = useRef(new Animated.Value(-width)).current; // Initialize off-screen left
 
   // --- Listen for Auth State Changes ---
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       if (!user) {
-        // Reset data or show login prompt if needed when user logs out
         console.log("Header: No user logged in.");
         setErrorTotals("Please log in to view totals.");
         setIsLoadingTotals(false);
@@ -134,36 +274,35 @@ const Header = () => {
         setTotalIncome(0);
         setTotalExpenses(0);
         setNetTotal(0);
+        if (isProfileModalVisible) {
+          setProfileModalVisible(false);
+        }
       }
     });
-    return () => unsubscribeAuth(); // Cleanup listener
-  }, []);
+    return () => unsubscribeAuth();
+  }, [isProfileModalVisible]);
 
+  // --- Fetch Accounts ---
   useEffect(() => {
     if (!currentUser) {
-      // Don't fetch if no user
       setIsLoadingAccounts(false);
-      setAccountIncomeData([]); // Clear data if no user
+      setAccountIncomeData([]);
       return;
     }
-
     setIsLoadingAccounts(true);
     const accountsCollectionRef = collection(
       db,
       "Accounts",
-      currentUser.uid, // Use currentUser.uid
+      currentUser.uid,
       "accounts"
     );
     const q = query(accountsCollectionRef);
-
     const unsubscribeAccounts = onSnapshot(
-      // Fetch accounts to calculate recurring income later
       q,
       (querySnapshot) => {
         const fetchedAccounts: AccountForIncome[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Check if incomeAmount is a positive number and frequency exists
           if (
             data &&
             typeof data.incomeAmount === "number" &&
@@ -182,47 +321,40 @@ const Header = () => {
       },
       (err) => {
         console.error("Error fetching accounts for income calculation: ", err);
-        setErrorTotals("Failed to load account income data."); // Set specific error
+        setErrorTotals("Failed to load account income data.");
         setIsLoadingAccounts(false);
       }
     );
     return () => unsubscribeAccounts();
-  }, [currentUser]); // Re-run if user changes
+  }, [currentUser]);
 
-  // --- Fetch Totals & Calculate (uses selectedYear, selectedMonth from context) ---
+  // --- Fetch Totals & Calculate ---
   useEffect(() => {
-    // Wait for accounts to load and user to be present
     if (isLoadingAccounts || !currentUser) {
       setIsLoadingTotals(true);
       return;
     }
-
     setIsLoadingTotals(true);
-    setErrorTotals(null); // Clear previous errors
-    // Reset totals before fetching/calculating
+    setErrorTotals(null);
     setTotalIncome(0);
     setTotalExpenses(0);
     setNetTotal(0);
 
     if (!currentUser.uid) {
-      // Check for user UID
       setErrorTotals("User not identified.");
       setIsLoadingTotals(false);
       return;
     }
-
-    const monthNumber = getMonthNumber(selectedMonth); // Use context month
+    const monthNumber = getMonthNumber(selectedMonth);
     if (monthNumber < 0) {
       setErrorTotals("Invalid month selected.");
-      setIsLoadingTotals(false); // Stop loading if month is invalid
+      setIsLoadingTotals(false);
       return;
     }
 
-    // --- Calculate Date Range based on Filter ---
     let startDate: Date;
     let endDate: Date;
     const now = new Date();
-
     if (selectedFilter === "Daily") {
       startDate = new Date(
         now.getFullYear(),
@@ -241,7 +373,7 @@ const Header = () => {
         0
       );
     } else if (selectedFilter === "Weekly") {
-      const dayOfWeek = now.getDay(); // 0 (Sun) - 6 (Sat)
+      const dayOfWeek = now.getDay();
       startDate = new Date(
         now.getFullYear(),
         now.getMonth(),
@@ -249,7 +381,7 @@ const Header = () => {
         0,
         0,
         0
-      ); // Start of Sunday
+      );
       endDate = new Date(
         now.getFullYear(),
         now.getMonth(),
@@ -257,35 +389,24 @@ const Header = () => {
         0,
         0,
         0
-      ); // Start of next Sunday
+      );
     } else {
-      // Monthly (default)
-      startDate = new Date(selectedYear, monthNumber, 1, 0, 0, 0); // Use context year/month
-      endDate = new Date(selectedYear, monthNumber + 1, 1, 0, 0, 0); // Use context year/month
+      // Monthly
+      startDate = new Date(selectedYear, monthNumber, 1, 0, 0, 0);
+      endDate = new Date(selectedYear, monthNumber + 1, 1, 0, 0, 0);
     }
-
     const startTimestamp = Timestamp.fromDate(startDate);
     const endTimestamp = Timestamp.fromDate(endDate);
-    // --- End Date Range Calculation ---
 
-    // --- Calculate Recurring Income based on Filter ---
     let estimatedRecurringIncome = 0;
     const daysInFilterPeriod =
       (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
-
+    const approxDaysInMonth = 365.25 / 12;
+    const approxDaysInWeek = 7;
     accountIncomeData.forEach((account) => {
       const income = account.incomeAmount;
       const freq = account.incomeFrequency;
-      // Calculate recurring income based on the *selected filter period*
-      // Note: This is still an estimation, especially for weekly/daily from monthly sources.
-      // A more robust solution might involve tracking actual income events.
-      // For now, we prorate based on the filter period length.
-      const approxDaysInMonth = 365.25 / 12;
-      const approxDaysInWeek = 7;
-
-      // Double check income is valid number > 0 and freq exists
       if (typeof income === "number" && income > 0 && freq) {
-        // Approximate calculation based on average days/weeks per month
         switch (freq) {
           case "Daily":
             estimatedRecurringIncome += income * daysInFilterPeriod;
@@ -302,7 +423,6 @@ const Header = () => {
       }
     });
 
-    // Fetch Transactions (uses calculated date range)
     const transactionsCollectionRef = collection(
       db,
       "Accounts",
@@ -311,11 +431,9 @@ const Header = () => {
     );
     const q = query(
       transactionsCollectionRef,
-      // Filter transactions by the calculated start/end timestamps
       where("timestamp", ">=", startTimestamp),
       where("timestamp", "<", endTimestamp)
     );
-
     const unsubscribeTransactions = onSnapshot(
       q,
       (querySnapshot) => {
@@ -323,15 +441,12 @@ const Header = () => {
         let expensesFromTransactions = 0;
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Validate data structure before using
           if (data && typeof data.amount === "number" && data.type) {
             if (data.type === "Income") incomeFromTransactions += data.amount;
             else if (data.type === "Expenses")
               expensesFromTransactions += data.amount;
           }
         });
-
-        // Combine recurring income with income from transactions
         const combinedTotalIncome =
           estimatedRecurringIncome + incomeFromTransactions;
         setTotalIncome(combinedTotalIncome);
@@ -341,15 +456,13 @@ const Header = () => {
       },
       (err) => {
         console.error("Error fetching transaction totals: ", err);
-        setErrorTotals("Failed to load transaction totals."); // Set specific error
-        // Show recurring income even if transactions fail
+        setErrorTotals("Failed to load transaction totals.");
         setTotalIncome(estimatedRecurringIncome);
         setTotalExpenses(0);
         setNetTotal(estimatedRecurringIncome);
         setIsLoadingTotals(false);
       }
     );
-
     return () => unsubscribeTransactions();
   }, [
     currentUser,
@@ -357,67 +470,59 @@ const Header = () => {
     selectedMonth,
     accountIncomeData,
     isLoadingAccounts,
-    selectedFilter, // Add selectedFilter as a dependency
-  ]); // Depend on context date, user, and filter
+    selectedFilter,
+  ]);
 
-  // --- Date Picker Logic (updates context) ---
+  // --- Date Picker Logic ---
   const showDatePicker = () => setShowYearPicker(true);
   const hideDatePicker = () => {
     setShowYearPicker(false);
     setShowMonthPicker(false);
   };
   const handleYearSelect = (year: number) => {
-    setSelectedYear(year); // Update context
+    setSelectedYear(year);
     setShowYearPicker(false);
     setShowMonthPicker(true);
   };
   const handleMonthSelect = (month: string) => {
-    setSelectedMonth(month); // Update context
+    setSelectedMonth(month);
     setShowMonthPicker(false);
-    // Optionally close both pickers: hideDatePicker();
   };
 
   // --- Filter Modal Logic ---
   const handleFilterSelect = (filter: TimeFilter) => {
-    setSelectedFilter(filter); // Update context state
+    setSelectedFilter(filter);
     setIsFilterModalVisible(false);
   };
 
-  // --- Menu Animation (remains the same) ---
+  // --- Profile Modal Animation Effect ---
   useEffect(() => {
-    Animated.timing(slideAnim, {
-      toValue: isMenuVisible ? 0 : -width,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  }, [isMenuVisible]);
+    if (isProfileModalVisible) {
+      // Slide in
+      Animated.timing(slideAnimX, {
+        toValue: 0, // Slide to position 0 (on-screen)
+        duration: 300,
+        useNativeDriver: true, // Use native driver for performance
+      }).start();
+    } else {
+      // Slide out
+      Animated.timing(slideAnimX, {
+        toValue: -width, // Slide back off-screen left
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isProfileModalVisible, slideAnimX]);
 
-  // --- Menu Items (remains the same) ---
-  const menuItems = [
-    { id: "1", title: "Profile" },
-    { id: "2", title: "Settings" },
-    { id: "3", title: "Summary" },
-  ];
-  const renderMenuItem = ({
-    item,
-  }: {
-    item: { id: string; title: string };
-  }) => (
-    <TouchableOpacity
-      style={styles.menuItem}
-      onPress={() => {
-        setMenuVisible(false);
-        console.log(`Menu item ${item.title} pressed`);
-        // Add navigation logic here if needed
-      }}
-    >
-      <Text style={styles.menuItemText}>{item.title}</Text>
-    </TouchableOpacity>
-  );
+  // --- Removed Menu Animation Effect ---
+  // useEffect(() => { ... }, [isMenuVisible]);
 
-  // --- Render Totals (remains the same) ---
+  // --- Removed Menu Items and Rendering Logic ---
+  // const menuItems = [...];
+  // const renderMenuItem = (...) => { ... };
+
+  // --- Render Totals ---
   const renderTotals = () => {
-    // Show loader if either accounts or totals are loading, or if no user
     if (isLoadingTotals || isLoadingAccounts || !currentUser) {
       return (
         <ActivityIndicator
@@ -427,10 +532,7 @@ const Header = () => {
         />
       );
     }
-    // Show error if one occurred during fetching
     if (errorTotals && !isLoadingTotals) {
-      // Only show error if not loading
-      // Display multi-line errors if needed
       const errorLines = errorTotals.split("\n").map((line, index) => (
         <Text key={index} style={styles.errorText} numberOfLines={1}>
           {line}
@@ -439,7 +541,9 @@ const Header = () => {
       return <View style={styles.errorContainer}>{errorLines}</View>;
     }
     return (
-      <>
+      <View style={styles.categoryItemContent}>
+        {" "}
+        {/* Wrap in a View */}
         <Text
           style={styles.categoryAmount}
           numberOfLines={1}
@@ -461,7 +565,7 @@ const Header = () => {
         >
           {formatCurrency(netTotal)}
         </Text>
-      </>
+      </View>
     );
   };
 
@@ -470,11 +574,12 @@ const Header = () => {
     <View style={styles.container}>
       {/* Header Content */}
       <View style={styles.headerWrapper}>
-        {/* Top Row: Menu, Title, Search */}
+        {/* Top Row */}
         <View style={styles.headerTop}>
+          {/* Updated Menu Icon Press Handler */}
           <TouchableOpacity
             style={styles.iconContainer}
-            onPress={() => setMenuVisible(true)}
+            onPress={() => setProfileModalVisible(true)}
           >
             <Ionicons name="menu-outline" size={24} color="white" />
           </TouchableOpacity>
@@ -487,29 +592,25 @@ const Header = () => {
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Middle Row: Date Picker, Filter */}
+        {/* Middle Row */}
         <View style={styles.headerBottom}>
           <View style={styles.dateAndFilterContainer}>
             <View style={styles.dateContainer}>
               <TouchableOpacity
                 style={styles.dateSelector}
                 onPress={showDatePicker}
-                // Disable date picker if filter is not Monthly
                 disabled={selectedFilter !== "Monthly"}
               >
-                {/* Use selectedDateString from context or filter name */}
                 <Text
                   style={[
                     styles.dateText,
-                    selectedFilter !== "Monthly" && styles.dateTextDisabled, // Style disabled text
+                    selectedFilter !== "Monthly" && styles.dateTextDisabled,
                   ]}
                 >
                   {selectedFilter === "Monthly"
                     ? selectedDateString
                     : selectedFilter}
                 </Text>
-                {/* Only show chevron if filter is Monthly */}
                 {selectedFilter === "Monthly" && (
                   <Ionicons
                     name="chevron-down-outline"
@@ -519,7 +620,6 @@ const Header = () => {
                 )}
               </TouchableOpacity>
             </View>
-            {/* Updated Filter Icon Button */}
             <TouchableOpacity
               style={styles.volumeSliderIcon}
               onPress={() => setIsFilterModalVisible(true)}
@@ -528,8 +628,7 @@ const Header = () => {
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Bottom Row: Totals */}
+        {/* Bottom Row */}
         <View style={styles.dataContainer}>
           <View style={styles.categoryHeader}>
             <Text style={styles.categoryHeaderText}>Expenses</Text>
@@ -539,43 +638,34 @@ const Header = () => {
           <View style={styles.categoryItem}>{renderTotals()}</View>
         </View>
       </View>
-      {/* End Header Content */}
 
-      {/* Side Menu Modal */}
+      {/* Removed Side Menu Modal */}
+
+      {/* Profile Page Modal */}
       <Modal
-        animationType="none"
-        transparent={true}
-        visible={isMenuVisible}
-        onRequestClose={() => setMenuVisible(false)}
+        visible={isProfileModalVisible}
+        transparent={true} // Make transparent to see animation
+        animationType="fade" // Use fade or none for background dimming
+        onRequestClose={() => setProfileModalVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPressOut={() => setMenuVisible(false)}
+        {/* Animated container for the sliding effect */}
+        <Animated.View
+          style={[
+            styles.animatedProfileContainer,
+            { transform: [{ translateX: slideAnimX }] },
+          ]}
         >
-          <Animated.View
-            style={[
-              styles.menuContainer,
-              { transform: [{ translateX: slideAnim }] },
-            ]}
-            onStartShouldSetResponder={() => true} // Prevent touches passing through
-          >
-            <FlatList
-              data={menuItems}
-              renderItem={renderMenuItem}
-              keyExtractor={(item) => item.id}
-            />
-          </Animated.View>
-        </TouchableOpacity>
+          <ProfileModalContent onClose={() => setProfileModalVisible(false)} />
+        </Animated.View>
       </Modal>
 
       {/* Year Picker Modal */}
       {showYearPicker && (
         <Modal transparent animationType="fade" onRequestClose={hideDatePicker}>
-          <TouchableOpacity
+          <TouchableWithoutFeedback // <-- Change to TouchableWithoutFeedback
             style={styles.pickerModalContainer}
-            activeOpacity={1}
-            onPressOut={hideDatePicker}
+            // activeOpacity={1} // Not applicable
+            onPress={hideDatePicker} // Use onPress for TouchableWithoutFeedback
           >
             <View
               style={styles.pickerContent}
@@ -589,7 +679,7 @@ const Header = () => {
                     style={[
                       styles.pickerItem,
                       selectedYear === parseInt(item, 10) &&
-                        styles.pickerItemSelected, // Compare with context year
+                        styles.pickerItemSelected,
                     ]}
                     onPress={() => handleYearSelect(parseInt(item, 10))}
                   >
@@ -597,7 +687,7 @@ const Header = () => {
                       style={[
                         styles.pickerText,
                         selectedYear === parseInt(item, 10) &&
-                          styles.pickerTextSelected, // Compare with context year
+                          styles.pickerTextSelected,
                       ]}
                     >
                       {item}
@@ -613,17 +703,17 @@ const Header = () => {
                 <Text style={styles.pickerButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          </TouchableWithoutFeedback>
         </Modal>
       )}
 
       {/* Month Picker Modal */}
       {showMonthPicker && (
         <Modal transparent animationType="fade" onRequestClose={hideDatePicker}>
-          <TouchableOpacity
+          <TouchableWithoutFeedback // <-- Change to TouchableWithoutFeedback
             style={styles.pickerModalContainer}
-            activeOpacity={1}
-            onPressOut={hideDatePicker}
+            // activeOpacity={1} // Not applicable
+            onPress={hideDatePicker} // Use onPress for TouchableWithoutFeedback
           >
             <View
               style={styles.pickerContent}
@@ -636,14 +726,14 @@ const Header = () => {
                   <TouchableOpacity
                     style={[
                       styles.pickerItem,
-                      selectedMonth === item && styles.pickerItemSelected, // Compare with context month
+                      selectedMonth === item && styles.pickerItemSelected,
                     ]}
                     onPress={() => handleMonthSelect(item)}
                   >
                     <Text
                       style={[
                         styles.pickerText,
-                        selectedMonth === item && styles.pickerTextSelected, // Compare with context month
+                        selectedMonth === item && styles.pickerTextSelected,
                       ]}
                     >
                       {item}
@@ -659,7 +749,7 @@ const Header = () => {
                 <Text style={styles.pickerButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          </TouchableWithoutFeedback>
         </Modal>
       )}
 
@@ -670,14 +760,14 @@ const Header = () => {
           animationType="fade"
           onRequestClose={() => setIsFilterModalVisible(false)}
         >
-          <TouchableOpacity
-            style={styles.pickerModalContainer} // Reuse picker modal styles
-            activeOpacity={1}
-            onPressOut={() => setIsFilterModalVisible(false)} // Close on backdrop press
+          <TouchableWithoutFeedback // <-- Change to TouchableWithoutFeedback
+            style={styles.pickerModalContainer}
+            // activeOpacity={1} // Not applicable
+            onPress={() => setIsFilterModalVisible(false)} // Use onPress for TouchableWithoutFeedback
           >
             <View
-              style={styles.pickerContent} // Reuse picker content styles
-              onStartShouldSetResponder={() => true} // Prevent backdrop press through content
+              style={styles.pickerContent}
+              onStartShouldSetResponder={() => true}
             >
               <Text style={styles.pickerTitle}>Select Time Filter</Text>
               {(["Daily", "Weekly", "Monthly"] as TimeFilter[]).map(
@@ -685,15 +775,15 @@ const Header = () => {
                   <TouchableOpacity
                     key={filter}
                     style={[
-                      styles.pickerItem, // Reuse picker item styles
-                      selectedFilter === filter && styles.pickerItemSelected, // Highlight selected
+                      styles.pickerItem,
+                      selectedFilter === filter && styles.pickerItemSelected,
                     ]}
                     onPress={() => handleFilterSelect(filter)}
                   >
                     <Text
                       style={[
-                        styles.pickerText, // Reuse picker text styles
-                        selectedFilter === filter && styles.pickerTextSelected, // Highlight selected text
+                        styles.pickerText,
+                        selectedFilter === filter && styles.pickerTextSelected,
                       ]}
                     >
                       {filter}
@@ -701,23 +791,23 @@ const Header = () => {
                   </TouchableOpacity>
                 )
               )}
-              {/* Optional: Add a cancel button if needed */}
               <TouchableOpacity
-                style={styles.pickerButton} // Reuse picker button style
+                style={styles.pickerButton}
                 onPress={() => setIsFilterModalVisible(false)}
               >
                 <Text style={styles.pickerButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          </TouchableWithoutFeedback>
         </Modal>
       )}
     </View>
   );
 };
 
-// --- Styles (Mostly unchanged, check errorText styling) ---
+// --- Styles (Includes merged ProfilePage styles prefixed with 'profile') ---
 const styles = StyleSheet.create({
+  // --- Header Styles ---
   container: {
     backgroundColor: "#006400",
     paddingHorizontal: 8,
@@ -735,31 +825,16 @@ const styles = StyleSheet.create({
     width: "100%",
     marginBottom: 5,
   },
-  headerBottom: {
-    flexDirection: "row",
-    alignItems: "center",
-    width: "100%",
-  },
+  headerBottom: { flexDirection: "row", alignItems: "center", width: "100%" },
   titleContainer: {
-    position: "absolute", // Center title absolutely
+    position: "absolute",
     left: 0,
     right: 0,
     alignItems: "center",
   },
-  iconContainer: {
-    // Left icon (menu)
-    padding: 4,
-    zIndex: 2, // Ensure it's clickable over the title
-  },
-  title: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  dateContainer: {
-    // Container for the date selector itself
-    alignItems: "flex-start", // Align selector to the left within its space
-  },
+  iconContainer: { padding: 4, zIndex: 2 },
+  title: { color: "white", fontSize: 18, fontWeight: "bold" },
+  dateContainer: { alignItems: "flex-start" },
   dateSelector: {
     flexDirection: "row",
     alignItems: "center",
@@ -768,35 +843,24 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "rgba(255, 255, 255, 0.1)",
   },
-  dateText: {
-    color: "white",
-    marginRight: 4,
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  dateTextDisabled: {
-    // Style for disabled date text
-    color: "#cccccc", // Lighter color when disabled
-  },
+  dateText: { color: "white", marginRight: 4, fontSize: 14, fontWeight: "500" },
+  dateTextDisabled: { color: "#cccccc" },
   dateAndFilterContainer: {
-    // Row containing date selector and filter icon
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between", // Space out date and filter icon
+    justifyContent: "space-between",
     width: "100%",
   },
   dataContainer: {
-    // Container for the totals section
     marginTop: 10,
     width: "100%",
     backgroundColor: "rgba(0, 0, 0, 0.1)",
     borderRadius: 6,
     paddingVertical: 8,
-    minHeight: 50, // Ensure minimum height for loader/error
-    justifyContent: "center", // Center content vertically if loading/error
+    minHeight: 50,
+    justifyContent: "center",
   },
   categoryHeader: {
-    // Row for "Expenses", "Income", "Total" labels
     flexDirection: "row",
     justifyContent: "space-around",
     width: "100%",
@@ -808,95 +872,65 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     textAlign: "center",
-    flex: 1, // Distribute space equally
+    flex: 1,
   },
   categoryItem: {
-    // Row for the actual amounts
     flexDirection: "row",
     justifyContent: "space-around",
     width: "100%",
     paddingHorizontal: 10,
-    alignItems: "center", // Align amounts vertically
+    alignItems: "center",
   },
   categoryAmount: {
     color: "white",
     fontSize: 14,
     fontWeight: "bold",
     textAlign: "center",
-    flex: 1, // Distribute space equally
-    paddingHorizontal: 2, // Add slight padding to prevent text touching edges
+    flex: 1,
+    paddingHorizontal: 2,
   },
-  totalsLoader: {
-    marginVertical: 5, // Add some space for the loader
+  totalsLoader: { marginVertical: 5 },
+  categoryItemContent: {
+    // Style for the new wrapper inside categoryItem
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
+    alignItems: "center",
   },
   errorContainer: {
-    // Container for error messages within the totals area
-    flex: 1, // Take available space if needed
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 5, // Reduce padding to allow more text
+    paddingHorizontal: 5,
   },
-  errorText: {
-    // Styling for the error message text
-    color: "#ffdddd", // Lighter red for visibility on dark background
-    fontSize: 11, // Make error text slightly smaller
-    textAlign: "center",
-  },
+  errorText: { color: "#ffdddd", fontSize: 11, textAlign: "center" },
   rightIconsContainer: {
-    // Container for icons on the right (search)
     flexDirection: "row",
     alignItems: "center",
-    zIndex: 2, // Ensure clickable over title
+    zIndex: 2,
   },
-  searchIcon: {
-    padding: 4,
-  },
-  volumeSliderIcon: {
-    // Filter icon
-    padding: 4,
-  },
-  // --- Modal Styles ---
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  menuContainer: {
-    // Side menu
-    backgroundColor: "white",
-    width: width * 0.75,
-    height: "100%",
-    padding: 20,
-    paddingTop: Platform.OS === "ios" ? 50 : 20, // Adjust for status bar
-    shadowColor: "#000",
-    shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  menuItem: {
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderColor: "#eee",
-  },
-  menuItemText: {
-    fontSize: 16,
-    color: "#333",
-  },
+  searchIcon: { padding: 4 },
+  volumeSliderIcon: { padding: 4 },
+
+  // --- Removed Side Menu Styles ---
+  // modalOverlay: { ... },
+  // menuContainer: { ... },
+  // menuItem: { ... },
+  // menuItemText: { ... },
+
   // --- Picker Modal Styles ---
   pickerModalContainer: {
-    // Backdrop for picker modals
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "rgba(0, 0, 0, 0.6)",
   },
   pickerContent: {
-    // White box containing the picker list
     backgroundColor: "white",
     padding: 20,
     borderRadius: 10,
-    width: width * 0.8, // 80% of screen width
-    maxHeight: height * 0.6, // Max 60% of screen height
+    width: width * 0.8,
+    maxHeight: height * 0.6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -911,39 +945,109 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   pickerItem: {
-    // Touchable row in the picker list
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderColor: "#eee",
     alignItems: "center",
   },
-  pickerItemSelected: {
-    // Style for the selected item row
-    backgroundColor: "#e0f2e0", // Light green background
-  },
-  pickerText: {
-    // Text inside the picker row
-    fontSize: 16,
-    color: "#006400", // Theme green
-  },
-  pickerTextSelected: {
-    // Style for the selected item text
-    fontWeight: "bold",
-  },
+  pickerItemSelected: { backgroundColor: "#e0f2e0" },
+  pickerText: { fontSize: 16, color: "#006400" },
+  pickerTextSelected: { fontWeight: "bold" },
   pickerButton: {
-    // Cancel button at the bottom of the picker
     marginTop: 20,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    backgroundColor: "#e0e0e0", // Light grey background
+    backgroundColor: "#e0e0e0",
     borderRadius: 8,
     alignSelf: "center",
   },
-  pickerButtonText: {
-    fontSize: 16,
-    color: "#555",
-    fontWeight: "500",
+  pickerButtonText: { fontSize: 16, color: "#555", fontWeight: "500" },
+
+  // --- Profile Page Styles (Prefixed) ---
+  animatedProfileContainer: {
+    // Style for the animated wrapper
+    flex: 1,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%", // Adjust width if needed (e.g., 80% for a drawer effect)
+    height: "100%",
   },
+  profileContainer: { flex: 1, backgroundColor: "#f4f4f4" },
+  profileTopBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#006400",
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === "ios" ? 40 : 15,
+  },
+  profileTitle: { color: "white", fontSize: 18, fontWeight: "bold" },
+  profileHeader: {
+    backgroundColor: "white",
+    padding: 20,
+    alignItems: "center",
+    marginBottom: 20,
+    borderRadius: 8,
+    marginHorizontal: 15,
+    marginTop: 20,
+  },
+  profilePhotoPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#e0e0e0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 15,
+    overflow: "hidden",
+  },
+  profileImage: { width: "100%", height: "100%", borderRadius: 40 },
+  profileName: {
+    fontSize: 22,
+    fontWeight: "bold",
+    marginBottom: 10,
+    color: "#333",
+  },
+  profileInfoContainer: { width: "80%", alignItems: "center" },
+  profileInfoItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  profileInfoIcon: { marginRight: 10, color: "#777" },
+  profileInfoText: { fontSize: 16, color: "#555" },
+  profileContent: { paddingHorizontal: 15 },
+  profileSection: {
+    backgroundColor: "white",
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  profileSectionTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 10,
+    color: "#333",
+  },
+  profileListItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  profileLogoutButton: {
+    backgroundColor: "#dc3545",
+    paddingVertical: 15,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  profileLogoutText: { color: "white", fontSize: 18, fontWeight: "bold" },
+  profileDisabledButton: { backgroundColor: "#aaa", opacity: 0.7 },
 });
 
 export default Header;
