@@ -542,6 +542,11 @@ export default function TransactionScreen() {
       return;
     }
 
+    if (!selectedAccountId) {
+      Alert.alert("Account Required", "Please select an account.");
+      return;
+    }
+
     // --- Prepare Data ---
     const selectedAccountInfo = accountsList.find(
       (acc) => acc.id === selectedAccountId
@@ -549,7 +554,7 @@ export default function TransactionScreen() {
     const accountName = selectedAccountInfo
       ? selectedAccountInfo.title
       : "Unknown Account";
-    // Account ID will be null if none is selected
+
     const newTransactionData = {
       type: transactionType,
       categoryName: selectedCategoryForAmount.name,
@@ -561,63 +566,55 @@ export default function TransactionScreen() {
       timestamp: serverTimestamp(),
     };
 
-    // --- Firestore Save Logic ---
+    // --- Firestore Transaction ---
     try {
-      // --- Case 1: Account IS Selected - Use Transaction ---
-      if (selectedAccountId) {
-        await runTransaction(db, async (transaction) => {
-          // 1. Define references
-          const accountDocRef = doc(
-            db,
-            "Accounts",
-            userId,
-            "accounts",
-            selectedAccountId // Use the selected ID
-          );
-          const newTransactionRef = doc(
-            collection(db, "Accounts", userId, "transactions")
-          );
-
-          // 2. Read the current account balance
-          const accountDoc = await transaction.get(accountDocRef);
-          if (!accountDoc.exists()) {
-            throw new Error("Selected account document does not exist!");
-          }
-
-          const currentBalance = accountDoc.data()?.balance ?? 0;
-
-          // 3. Calculate the new balance based on transaction type
-          let newBalance;
-          if (transactionType === "Income") {
-            newBalance = currentBalance + transactionAmount;
-          } else {
-            newBalance = currentBalance - transactionAmount;
-          }
-
-          // 4. Perform writes
-          transaction.update(accountDocRef, { balance: newBalance });
-          transaction.set(newTransactionRef, newTransactionData);
-        });
-        console.log("Transaction committed (with account update).");
-      }
-      // --- Case 2: Account is NOT Selected - Add Transaction Only ---
-      else {
+      await runTransaction(db, async (transaction) => {
+        // 1. Define references
+        const accountDocRef = doc(
+          db,
+          "Accounts",
+          userId,
+          "accounts",
+          selectedAccountId! // Non-null assertion safe due to validation
+        );
         const newTransactionRef = doc(
           collection(db, "Accounts", userId, "transactions")
         );
-        // Directly add the transaction document without updating any account balance
-        await addDoc(
-          collection(db, "Accounts", userId, "transactions"),
-          newTransactionData
-        );
-        console.log("Transaction added (without account update).");
-      }
-      // --- End Firestore Save Logic ---
+
+        // 2. Read the current account balance
+        const accountDoc = await transaction.get(accountDocRef);
+        if (!accountDoc.exists()) {
+          throw new Error("Account document does not exist!");
+        }
+
+        const currentBalance = accountDoc.data()?.balance ?? 0;
+
+        // 3. Calculate the new balance based on transaction type
+        let newBalance;
+        if (transactionType === "Income") {
+          newBalance = currentBalance + transactionAmount;
+        } else {
+          newBalance = currentBalance - transactionAmount;
+        }
+
+        // 4. Perform writes
+        transaction.update(accountDocRef, { balance: newBalance });
+        transaction.set(newTransactionRef, newTransactionData);
+      });
 
       // --- Success ---
       console.log("Transaction successfully committed!");
-      Alert.alert("Success", "Record Saved"); // Simple success popup
-      handleCloseAmountModal(); // Close the modal first
+      Alert.alert(
+        `Transaction Saved (${transactionType})`,
+        `Category: ${
+          selectedCategoryForAmount.name
+        }\nAmount: ₱${transactionAmount.toFixed(2)}\nAccount: ${accountName}${
+          newTransactionData.description
+            ? `\nDesc: ${newTransactionData.description}`
+            : ""
+        }`
+      );
+      handleCloseAmountModal();
       if (navigation.canGoBack()) {
         navigation.goBack();
       }
@@ -641,8 +638,10 @@ export default function TransactionScreen() {
   };
 
   const handleSaveHeader = () => {
-    // This header button doesn't perform the save directly.
-    // The save happens in the modal via handleSaveAmount.
+    Alert.alert(
+      "Save Action",
+      "Select a category and enter details in the modal to save."
+    );
   };
 
   // --- JSX ---
@@ -921,16 +920,18 @@ export default function TransactionScreen() {
                     styles.modalButton,
                     styles.saveButton,
                     // Disable save if no user, loading, no accounts, or no category selected/suggested
-                    (isLoadingAccounts || // Still disable if accounts are loading (might select one)
-                      (!selectedCategoryForAmount && !suggestedCategoryId) || // Need a category
+                    (isLoadingAccounts ||
+                      accountsList.length === 0 ||
+                      (!selectedCategoryForAmount && !suggestedCategoryId) ||
                       !currentUser) &&
                       styles.saveButtonDisabled,
                   ]}
                   onPress={handleSaveAmount}
                   disabled={
                     !currentUser || // Disable if no user
-                    isLoadingAccounts || // Disable if accounts are loading
-                    (!selectedCategoryForAmount && !suggestedCategoryId) // Disable if no category
+                    isLoadingAccounts ||
+                    accountsList.length === 0 ||
+                    (!selectedCategoryForAmount && !suggestedCategoryId)
                   }
                 >
                   <Text style={styles.saveButtonText}>Save</Text>
@@ -1138,7 +1139,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     fontSize: 20, // Larger font for amount
     width: "100%",
-    textAlign: "left", // Changed to left-align amount
+    textAlign: "right", // Right-align amount
     backgroundColor: "#fff",
     color: "#212529",
   },

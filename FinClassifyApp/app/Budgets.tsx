@@ -25,15 +25,13 @@ import {
   deleteDoc,
   doc,
   orderBy,
-  Timestamp, // Import Timestamp
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
 
 // Import components and config
 import HeaderTopNav from "../components/headertopnav";
-import BotNavigationBar from "../components/botnavigationbar"; // Corrected import name
+import BotNavigationBar from "../components/botnavigationbar";
 import { app } from "../app/firebase"; // Adjust path if needed
-import { useDateContext } from "./context/DateContext"; // Import the context hook
 
 // --- Firestore Initialization ---
 const db = getFirestore(app);
@@ -67,19 +65,6 @@ interface BudgetDefinition {
   icon?: keyof typeof MaterialCommunityIcons.glyphMap;
 }
 
-// Re-using Transaction interface structure (ensure consistency)
-interface Transaction {
-  id: string;
-  type: "Income" | "Expenses";
-  categoryName: string;
-  categoryIcon: keyof typeof MaterialCommunityIcons.glyphMap;
-  amount: number;
-  timestamp: Timestamp;
-  accountId: string | null;
-  accountName?: string;
-  description?: string;
-}
-
 interface UserCategory {
   id: string;
   name: string;
@@ -92,7 +77,6 @@ interface BudgetDisplayData {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   limit: number;
   budgetId: string | null;
-  currentSpending: number; // Add current spending
 }
 
 // --- Helper Functions ---
@@ -103,31 +87,10 @@ const formatCurrency = (amount: number): string => {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${prefix}${formattedAmount}`;
 };
-
-// Helper to get month number (0-indexed)
-const getMonthNumber = (monthName: string): number => {
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  return months.indexOf(monthName);
-};
 // --- End Helper Functions ---
 
 const BudgetsScreen = () => {
   const navigation = useNavigation();
-  // Get date and filter from context
-  const { selectedYear, selectedMonth, selectedFilter } = useDateContext();
 
   const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   // State for budget limits fetched from 'budgets' collection
@@ -155,20 +118,6 @@ const BudgetsScreen = () => {
   >(null);
   const [budgetLimit, setBudgetLimit] = useState<string>(""); // Input is string
 
-  // State for fetched expense transactions
-  const [expenseTransactions, setExpenseTransactions] = useState<Transaction[]>(
-    []
-  );
-  const [isLoadingTransactions, setIsLoadingTransactions] = useState(true);
-  const [errorTransactions, setErrorTransactions] = useState<string | null>(
-    null
-  );
-
-  // State to track already notified exceeded budgets for the current period
-  const [notifiedExceededCategories, setNotifiedExceededCategories] = useState<
-    Set<string>
-  >(new Set());
-
   // --- Navigation Handler for FAB ---
   const navigateToTransaction = () => {
     navigation.navigate("transactions" as never); // Navigate to the transaction screen
@@ -182,12 +131,9 @@ const BudgetsScreen = () => {
         console.log("Budgets: No user logged in.");
         setIsLoadingBudgets(false);
         setIsLoadingUserCategories(false);
-        setIsLoadingTransactions(false); // Stop transaction loading
         setErrorBudgets("Please log in to view budgets.");
         setBudgetDefinitions([]); // Clear data on logout
         setUserExpenseCategories([]);
-        setExpenseTransactions([]); // Clear transactions
-        setNotifiedExceededCategories(new Set()); // Reset notifications
       }
     });
     return () => unsubscribeAuth();
@@ -300,121 +246,9 @@ const BudgetsScreen = () => {
     return () => unsubscribeBudgets();
   }, [currentUser, userExpenseCategories, isLoadingUserCategories]); // Add currentUser dependency
 
-  // --- Fetch Expense Transactions based on Date Context and Filter ---
-  useEffect(() => {
-    if (!currentUser) return; // Don't fetch if user is not logged in
-
-    setIsLoadingTransactions(true);
-    setErrorTransactions(null);
-    setExpenseTransactions([]); // Clear previous data
-    setNotifiedExceededCategories(new Set()); // Reset notifications on period change
-
-    // --- Calculate Date Range based on Filter ---
-    let startDate: Date;
-    let endDate: Date;
-    const now = new Date();
-    const monthNumber = getMonthNumber(selectedMonth);
-
-    if (selectedFilter === "Daily") {
-      startDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate(),
-        0,
-        0,
-        0
-      );
-      endDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() + 1,
-        0,
-        0,
-        0
-      );
-    } else if (selectedFilter === "Weekly") {
-      const dayOfWeek = now.getDay(); // 0 (Sun) - 6 (Sat)
-      startDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() - dayOfWeek,
-        0,
-        0,
-        0
-      );
-      endDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() + (7 - dayOfWeek),
-        0,
-        0,
-        0
-      );
-    } else {
-      // Monthly (default)
-      if (monthNumber < 0) {
-        setErrorTransactions("Invalid month selected.");
-        setIsLoadingTransactions(false);
-        return;
-      }
-      startDate = new Date(selectedYear, monthNumber, 1, 0, 0, 0);
-      endDate = new Date(selectedYear, monthNumber + 1, 1, 0, 0, 0);
-    }
-    const startTimestamp = Timestamp.fromDate(startDate);
-    const endTimestamp = Timestamp.fromDate(endDate);
-    // --- End Date Range Calculation ---
-
-    const transactionsColRef = collection(
-      db,
-      "Accounts",
-      currentUser.uid,
-      "transactions"
-    );
-
-    // Query for EXPENSE transactions within the date range
-    const q = query(
-      transactionsColRef,
-      where("type", "==", "Expenses"),
-      where("timestamp", ">=", startTimestamp),
-      where("timestamp", "<", endTimestamp)
-      // No specific order needed for summing
-    );
-
-    console.log(
-      `Budgets: Fetching expenses from ${startDate.toISOString()} to ${endDate.toISOString()}`
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetchedExpenses: Transaction[] = snapshot.docs.map(
-          (doc) =>
-            ({
-              id: doc.id,
-              ...doc.data(),
-            } as Transaction)
-        );
-        setExpenseTransactions(fetchedExpenses);
-        setIsLoadingTransactions(false);
-      },
-      (err) => {
-        console.error("Budgets: Error fetching expense transactions:", err);
-        setErrorTransactions(
-          `Failed to load spending data. ${
-            err.code === "permission-denied" ? "Check Firestore rules." : ""
-          }`
-        );
-        setIsLoadingTransactions(false);
-      }
-    );
-
-    return () => unsubscribe(); // Cleanup listener
-  }, [currentUser, selectedYear, selectedMonth, selectedFilter]); // Re-run when filter changes too
-
   // --- Calculate Display Items using useMemo ---
   const displayItems = useMemo(() => {
-    // Wait for all data to load
-    if (isLoadingBudgets || isLoadingUserCategories || isLoadingTransactions) {
+    if (isLoadingBudgets || isLoadingUserCategories) {
       return [];
     }
 
@@ -438,16 +272,6 @@ const BudgetsScreen = () => {
 
     const allCategories = Array.from(combinedCategoriesMap.values());
 
-    // Calculate current spending per category for the period
-    const spendingMap = new Map<string, number>();
-    expenseTransactions.forEach((tx) => {
-      if (tx.type === "Expenses") {
-        const current = spendingMap.get(tx.categoryName) ?? 0;
-        spendingMap.set(tx.categoryName, current + tx.amount);
-      }
-    });
-
-    // Combine category info, budget limit, and current spending
     return allCategories
       .map((category) => {
         const budgetDef = budgetDefinitions.find(
@@ -455,12 +279,10 @@ const BudgetsScreen = () => {
         );
         const limit = budgetDef?.limit ?? 0;
         const budgetId = budgetDef?.id ?? null;
-        const currentSpending = spendingMap.get(category.name) ?? 0; // Get spending
         return {
           categoryName: category.name,
           icon: category.icon,
           limit: limit,
-          currentSpending: currentSpending, // Add spending to display data
           budgetId: budgetId,
         };
       })
@@ -476,9 +298,7 @@ const BudgetsScreen = () => {
     budgetDefinitions,
     isLoadingBudgets,
     userExpenseCategories,
-    expenseTransactions, // Depend on transactions
     isLoadingUserCategories,
-    isLoadingTransactions, // Depend on transaction loading state
   ]);
 
   // --- Find the index of the first item without a budget ---
@@ -488,47 +308,6 @@ const BudgetsScreen = () => {
       (item) => !(item.limit > 0 && item.budgetId !== null)
     );
   }, [displayItems]);
-
-  // --- Effect to Check for Exceeded Budgets and Alert ---
-  useEffect(() => {
-    if (
-      isLoadingBudgets ||
-      isLoadingUserCategories ||
-      isLoadingTransactions ||
-      displayItems.length === 0
-    ) {
-      return; // Don't check if loading or no items
-    }
-
-    const newlyExceeded = displayItems.filter(
-      (item) =>
-        item.limit > 0 && // Must have a limit set
-        item.currentSpending > item.limit && // Spending exceeds limit
-        !notifiedExceededCategories.has(item.categoryName) // Not already notified in this period
-    );
-
-    if (newlyExceeded.length > 0) {
-      const categoryNames = newlyExceeded
-        .map((item) => item.categoryName)
-        .join(", ");
-      Alert.alert(
-        "Budget Exceeded!",
-        `You've exceeded your budget for: ${categoryNames}`
-      );
-      // Update the set of notified categories
-      setNotifiedExceededCategories((prev) => {
-        const newSet = new Set(prev);
-        newlyExceeded.forEach((item) => newSet.add(item.categoryName));
-        return newSet;
-      });
-    }
-  }, [
-    displayItems,
-    isLoadingBudgets,
-    isLoadingUserCategories,
-    isLoadingTransactions,
-    notifiedExceededCategories,
-  ]);
 
   // --- Modal Handling ---
   const openModalForCategory = (item: BudgetDisplayData) => {
@@ -714,10 +493,6 @@ const BudgetsScreen = () => {
     index: number;
   }) => {
     const hasBudgetSet = item.limit > 0 && item.budgetId !== null;
-    const isOverBudget = hasBudgetSet && item.currentSpending > item.limit;
-    const spendingPercentage = hasBudgetSet
-      ? (item.currentSpending / item.limit) * 100
-      : 0;
     let header = null;
 
     // Check if this is the first item AND it has a budget
@@ -753,28 +528,10 @@ const BudgetsScreen = () => {
               <Text style={styles.budgetCategoryTitle}>
                 {item.categoryName}
               </Text>
-              {hasBudgetSet ? ( // Display spending vs limit if budget is set
-                <View>
-                  <Text
-                    style={[
-                      styles.budgetInfoText,
-                      isOverBudget && styles.overBudgetAmount,
-                    ]}
-                  >
-                    Spent: {formatCurrency(item.currentSpending)} /{" "}
-                    {formatCurrency(item.limit)}
-                  </Text>
-                  {/* Simple Progress Bar */}
-                  <View style={styles.progressBarContainer}>
-                    <View
-                      style={[
-                        styles.progressBarFill,
-                        { width: `${Math.min(spendingPercentage, 100)}%` }, // Cap at 100% width
-                        isOverBudget && styles.overBudgetProgress, // Red color if over budget
-                      ]}
-                    />
-                  </View>
-                </View>
+              {hasBudgetSet ? (
+                <Text style={styles.budgetInfoText}>
+                  Limit: {formatCurrency(item.limit)}
+                </Text>
               ) : (
                 <Text style={styles.budgetInfoTextMuted}>
                   Tap to set budget limit
@@ -812,12 +569,7 @@ const BudgetsScreen = () => {
   // Renders the main content area (Loading, Error, or List)
   const renderContent = () => {
     // Show message if user is not logged in (and auth check is done)
-    if (
-      !currentUser &&
-      !isLoadingBudgets &&
-      !isLoadingUserCategories &&
-      !isLoadingTransactions
-    ) {
+    if (!currentUser && !isLoadingBudgets && !isLoadingUserCategories) {
       return (
         <View style={styles.centeredStateContainer}>
           <MaterialIcons name="login" size={40} color="#888" />
@@ -827,7 +579,7 @@ const BudgetsScreen = () => {
         </View>
       );
     }
-    if (isLoadingBudgets || isLoadingUserCategories || isLoadingTransactions) {
+    if (isLoadingBudgets || isLoadingUserCategories) {
       return (
         <View style={styles.centeredStateContainer}>
           <ActivityIndicator size="large" color="#006400" />
@@ -836,7 +588,7 @@ const BudgetsScreen = () => {
       );
     }
 
-    const combinedError = [errorBudgets, errorUserCategories, errorTransactions] // Include transaction errors
+    const combinedError = [errorBudgets, errorUserCategories]
       .filter(Boolean)
       .join("\n");
     if (combinedError) {
@@ -969,7 +721,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#f0f0f0", // Light grey background
   },
   content: {
-    // This View wraps the FlatList or loading/error states
     flex: 1,
   },
   // Removed sectionTitle style as it's replaced by listSectionHeader
@@ -1036,32 +787,16 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   budgetInfoText: {
-    fontSize: 13, // Slightly smaller
+    fontSize: 14,
     color: "#006400", // Green for set limit
     fontWeight: "500",
     marginTop: 2,
-  },
-  overBudgetAmount: {
-    color: "#D32F2F", // Red color when over budget
-    fontWeight: "bold",
   },
   budgetInfoTextMuted: {
     fontSize: 13,
     color: "#888", // Grey for placeholder text
     marginTop: 2,
     fontStyle: "italic",
-  },
-  progressBarContainer: {
-    height: 6, // Thin progress bar
-    backgroundColor: "#e0e0e0", // Light grey background
-    borderRadius: 3,
-    marginTop: 5, // Space above progress bar
-    overflow: "hidden",
-  },
-  progressBarFill: {
-    height: "100%",
-    backgroundColor: "#4CAF50", // Green fill
-    borderRadius: 3,
   },
   budgetActions: {
     justifyContent: "center",
@@ -1075,9 +810,6 @@ const styles = StyleSheet.create({
     // To maintain layout when delete button isn't shown
     width: 38, // Match approx width of the icon + padding
     height: 38,
-  },
-  overBudgetProgress: {
-    backgroundColor: "#D32F2F", // Red fill when over budget
   },
   centeredStateContainer: {
     flex: 1,

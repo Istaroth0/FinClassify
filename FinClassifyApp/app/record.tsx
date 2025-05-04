@@ -38,7 +38,7 @@ interface Transaction {
   categoryIcon: keyof typeof MaterialCommunityIcons.glyphMap;
   amount: number;
   timestamp: Timestamp;
-  accountId: string | null; // Allow accountId to be null
+  accountId: string;
   accountName?: string;
 }
 
@@ -161,7 +161,7 @@ const HistoryScreen = () => {
             typeof data.categoryIcon === "string" &&
             typeof data.amount === "number" &&
             data.timestamp instanceof Timestamp &&
-            (typeof data.accountId === "string" || data.accountId === null) // Allow string or null
+            typeof data.accountId === "string"
           ) {
             fetchedTransactions.push({
               id: doc.id,
@@ -171,7 +171,7 @@ const HistoryScreen = () => {
                 data.categoryIcon as keyof typeof MaterialCommunityIcons.glyphMap,
               amount: data.amount,
               timestamp: data.timestamp,
-              accountId: data.accountId, // This will now correctly handle null
+              accountId: data.accountId,
               accountName: data.accountName || "Unknown Account",
             });
           } else {

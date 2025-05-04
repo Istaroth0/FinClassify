@@ -29,6 +29,7 @@ import { useDateContext } from "../app/context/DateContext"; // Import the conte
 const { width, height } = Dimensions.get("window");
 const db = getFirestore(app);
 const auth = getAuth(app); // Initialize Firebase Auth
+const HARDCODED_USER_ID = "User";
 
 // --- Interfaces ---
 interface AccountForIncome {
@@ -68,8 +69,6 @@ const getMonthNumber = (monthName: string): number => {
 };
 // --- End Helper Functions ---
 
-type TimeFilter = "Daily" | "Weekly" | "Monthly";
-
 const Header = () => {
   // Use the context for date state and setters
   const {
@@ -77,8 +76,6 @@ const Header = () => {
     selectedMonth,
     setSelectedYear,
     setSelectedMonth,
-    selectedFilter, // Get filter from context
-    setSelectedFilter, // Get filter setter from context
     selectedDateString, // Use the string from context
   } = useDateContext();
 
@@ -104,13 +101,11 @@ const Header = () => {
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
 
-  // Remove local filter state - use context state instead
-  const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  // State for totals and loading
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
+  // State for totals and loading (remains the same)
   const [totalIncome, setTotalIncome] = useState(0);
   const [totalExpenses, setTotalExpenses] = useState(0);
-  const [netTotal, setNetTotal] = useState(0); // Calculated as income - expenses
+  const [netTotal, setNetTotal] = useState(0);
   const [isLoadingTotals, setIsLoadingTotals] = useState(true);
   const [errorTotals, setErrorTotals] = useState<string | null>(null);
   const [accountIncomeData, setAccountIncomeData] = useState<
@@ -118,7 +113,7 @@ const Header = () => {
   >([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
 
-  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i); // For year picker
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i);
 
   // --- Listen for Auth State Changes ---
   useEffect(() => {
@@ -126,19 +121,15 @@ const Header = () => {
       setCurrentUser(user);
       if (!user) {
         // Reset data or show login prompt if needed when user logs out
-        console.log("Header: No user logged in.");
         setErrorTotals("Please log in to view totals.");
         setIsLoadingTotals(false);
         setIsLoadingAccounts(false);
-        setAccountIncomeData([]);
-        setTotalIncome(0);
-        setTotalExpenses(0);
-        setNetTotal(0);
       }
     });
     return () => unsubscribeAuth(); // Cleanup listener
   }, []);
 
+  // --- Fetch Accounts (remains the same) ---
   useEffect(() => {
     if (!currentUser) {
       // Don't fetch if no user
@@ -157,19 +148,12 @@ const Header = () => {
     const q = query(accountsCollectionRef);
 
     const unsubscribeAccounts = onSnapshot(
-      // Fetch accounts to calculate recurring income later
       q,
       (querySnapshot) => {
         const fetchedAccounts: AccountForIncome[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Check if incomeAmount is a positive number and frequency exists
-          if (
-            data &&
-            typeof data.incomeAmount === "number" &&
-            data.incomeAmount > 0 &&
-            data.incomeFrequency
-          ) {
+          if (data && data.incomeAmount && data.incomeFrequency) {
             fetchedAccounts.push({
               id: doc.id,
               incomeAmount: data.incomeAmount,
@@ -182,7 +166,9 @@ const Header = () => {
       },
       (err) => {
         console.error("Error fetching accounts for income calculation: ", err);
-        setErrorTotals("Failed to load account income data."); // Set specific error
+        setErrorTotals((prev) =>
+          prev ? `${prev}\nAcc income fail.` : "Acc income fail."
+        );
         setIsLoadingAccounts(false);
       }
     );
@@ -191,127 +177,70 @@ const Header = () => {
 
   // --- Fetch Totals & Calculate (uses selectedYear, selectedMonth from context) ---
   useEffect(() => {
-    // Wait for accounts to load and user to be present
     if (isLoadingAccounts || !currentUser) {
+      // Check for user
       setIsLoadingTotals(true);
       return;
     }
 
     setIsLoadingTotals(true);
-    setErrorTotals(null); // Clear previous errors
+    setErrorTotals(null);
     // Reset totals before fetching/calculating
     setTotalIncome(0);
     setTotalExpenses(0);
     setNetTotal(0);
 
     if (!currentUser.uid) {
-      // Check for user UID
-      setErrorTotals("User not identified.");
+      // Check for user UID specifically
+      setErrorTotals("User missing.");
       setIsLoadingTotals(false);
       return;
     }
 
     const monthNumber = getMonthNumber(selectedMonth); // Use context month
     if (monthNumber < 0) {
-      setErrorTotals("Invalid month selected.");
-      setIsLoadingTotals(false); // Stop loading if month is invalid
+      setErrorTotals("Invalid month.");
+      setIsLoadingTotals(false);
       return;
     }
 
-    // --- Calculate Date Range based on Filter ---
-    let startDate: Date;
-    let endDate: Date;
-    const now = new Date();
-
-    if (selectedFilter === "Daily") {
-      startDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate(),
-        0,
-        0,
-        0
-      );
-      endDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() + 1,
-        0,
-        0,
-        0
-      );
-    } else if (selectedFilter === "Weekly") {
-      const dayOfWeek = now.getDay(); // 0 (Sun) - 6 (Sat)
-      startDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() - dayOfWeek,
-        0,
-        0,
-        0
-      ); // Start of Sunday
-      endDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() + (7 - dayOfWeek),
-        0,
-        0,
-        0
-      ); // Start of next Sunday
-    } else {
-      // Monthly (default)
-      startDate = new Date(selectedYear, monthNumber, 1, 0, 0, 0); // Use context year/month
-      endDate = new Date(selectedYear, monthNumber + 1, 1, 0, 0, 0); // Use context year/month
-    }
-
-    const startTimestamp = Timestamp.fromDate(startDate);
-    const endTimestamp = Timestamp.fromDate(endDate);
-    // --- End Date Range Calculation ---
-
-    // --- Calculate Recurring Income based on Filter ---
+    // Calculate Recurring Income (uses context year/month)
     let estimatedRecurringIncome = 0;
-    const daysInFilterPeriod =
-      (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
+    const daysInMonth = new Date(selectedYear, monthNumber + 1, 0).getDate(); // Use context year
 
     accountIncomeData.forEach((account) => {
       const income = account.incomeAmount;
       const freq = account.incomeFrequency;
-      // Calculate recurring income based on the *selected filter period*
-      // Note: This is still an estimation, especially for weekly/daily from monthly sources.
-      // A more robust solution might involve tracking actual income events.
-      // For now, we prorate based on the filter period length.
-      const approxDaysInMonth = 365.25 / 12;
-      const approxDaysInWeek = 7;
-
-      // Double check income is valid number > 0 and freq exists
-      if (typeof income === "number" && income > 0 && freq) {
-        // Approximate calculation based on average days/weeks per month
+      if (income && income > 0 && freq) {
         switch (freq) {
           case "Daily":
-            estimatedRecurringIncome += income * daysInFilterPeriod;
+            estimatedRecurringIncome += income * daysInMonth;
             break;
           case "Weekly":
-            estimatedRecurringIncome +=
-              income * (daysInFilterPeriod / approxDaysInWeek);
+            estimatedRecurringIncome += income * (daysInMonth / 7);
             break;
           case "Monthly":
-            estimatedRecurringIncome +=
-              income * (daysInFilterPeriod / approxDaysInMonth);
+            estimatedRecurringIncome += income;
             break;
         }
       }
     });
 
-    // Fetch Transactions (uses calculated date range)
+    // Fetch Transactions (uses context year/month)
+    const startDate = new Date(selectedYear, monthNumber, 1, 0, 0, 0); // Use context year
+    const endDate = new Date(selectedYear, monthNumber + 1, 1, 0, 0, 0); // Use context year
+    const startTimestamp = Timestamp.fromDate(startDate);
+    const endTimestamp = Timestamp.fromDate(endDate);
+
     const transactionsCollectionRef = collection(
       db,
+
       "Accounts",
       currentUser.uid,
       "transactions"
     );
     const q = query(
       transactionsCollectionRef,
-      // Filter transactions by the calculated start/end timestamps
       where("timestamp", ">=", startTimestamp),
       where("timestamp", "<", endTimestamp)
     );
@@ -323,15 +252,13 @@ const Header = () => {
         let expensesFromTransactions = 0;
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Validate data structure before using
-          if (data && typeof data.amount === "number" && data.type) {
+          if (data && typeof data.amount === "number") {
             if (data.type === "Income") incomeFromTransactions += data.amount;
             else if (data.type === "Expenses")
               expensesFromTransactions += data.amount;
           }
         });
 
-        // Combine recurring income with income from transactions
         const combinedTotalIncome =
           estimatedRecurringIncome + incomeFromTransactions;
         setTotalIncome(combinedTotalIncome);
@@ -341,7 +268,9 @@ const Header = () => {
       },
       (err) => {
         console.error("Error fetching transaction totals: ", err);
-        setErrorTotals("Failed to load transaction totals."); // Set specific error
+        setErrorTotals((prev) =>
+          prev ? `${prev}\nTx totals fail.` : "Tx totals fail."
+        );
         // Show recurring income even if transactions fail
         setTotalIncome(estimatedRecurringIncome);
         setTotalExpenses(0);
@@ -357,8 +286,7 @@ const Header = () => {
     selectedMonth,
     accountIncomeData,
     isLoadingAccounts,
-    selectedFilter, // Add selectedFilter as a dependency
-  ]); // Depend on context date, user, and filter
+  ]); // Depend on context date and user
 
   // --- Date Picker Logic (updates context) ---
   const showDatePicker = () => setShowYearPicker(true);
@@ -373,14 +301,9 @@ const Header = () => {
   };
   const handleMonthSelect = (month: string) => {
     setSelectedMonth(month); // Update context
+    // No need to update local selectedDate state anymore
     setShowMonthPicker(false);
-    // Optionally close both pickers: hideDatePicker();
-  };
-
-  // --- Filter Modal Logic ---
-  const handleFilterSelect = (filter: TimeFilter) => {
-    setSelectedFilter(filter); // Update context state
-    setIsFilterModalVisible(false);
+    // hideDatePicker(); // Optionally close both pickers
   };
 
   // --- Menu Animation (remains the same) ---
@@ -417,8 +340,8 @@ const Header = () => {
 
   // --- Render Totals (remains the same) ---
   const renderTotals = () => {
-    // Show loader if either accounts or totals are loading, or if no user
-    if (isLoadingTotals || isLoadingAccounts || !currentUser) {
+    if (!currentUser || isLoadingTotals || isLoadingAccounts) {
+      // Check for user
       return (
         <ActivityIndicator
           size="small"
@@ -427,12 +350,9 @@ const Header = () => {
         />
       );
     }
-    // Show error if one occurred during fetching
-    if (errorTotals && !isLoadingTotals) {
-      // Only show error if not loading
-      // Display multi-line errors if needed
+    if (errorTotals) {
       const errorLines = errorTotals.split("\n").map((line, index) => (
-        <Text key={index} style={styles.errorText} numberOfLines={1}>
+        <Text key={index} style={styles.errorText}>
           {line}
         </Text>
       ));
@@ -440,27 +360,11 @@ const Header = () => {
     }
     return (
       <>
-        <Text
-          style={styles.categoryAmount}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
+        <Text style={styles.categoryAmount}>
           {formatCurrency(totalExpenses)}
         </Text>
-        <Text
-          style={styles.categoryAmount}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {formatCurrency(totalIncome)}
-        </Text>
-        <Text
-          style={styles.categoryAmount}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {formatCurrency(netTotal)}
-        </Text>
+        <Text style={styles.categoryAmount}>{formatCurrency(totalIncome)}</Text>
+        <Text style={styles.categoryAmount}>{formatCurrency(netTotal)}</Text>
       </>
     );
   };
@@ -495,35 +399,13 @@ const Header = () => {
               <TouchableOpacity
                 style={styles.dateSelector}
                 onPress={showDatePicker}
-                // Disable date picker if filter is not Monthly
-                disabled={selectedFilter !== "Monthly"}
               >
-                {/* Use selectedDateString from context or filter name */}
-                <Text
-                  style={[
-                    styles.dateText,
-                    selectedFilter !== "Monthly" && styles.dateTextDisabled, // Style disabled text
-                  ]}
-                >
-                  {selectedFilter === "Monthly"
-                    ? selectedDateString
-                    : selectedFilter}
-                </Text>
-                {/* Only show chevron if filter is Monthly */}
-                {selectedFilter === "Monthly" && (
-                  <Ionicons
-                    name="chevron-down-outline"
-                    size={16}
-                    color="white"
-                  />
-                )}
+                {/* Use selectedDateString from context */}
+                <Text style={styles.dateText}>{selectedDateString}</Text>
+                <Ionicons name="chevron-down-outline" size={16} color="white" />
               </TouchableOpacity>
             </View>
-            {/* Updated Filter Icon Button */}
-            <TouchableOpacity
-              style={styles.volumeSliderIcon}
-              onPress={() => setIsFilterModalVisible(true)}
-            >
+            <TouchableOpacity style={styles.volumeSliderIcon}>
               <Ionicons name="options-outline" size={20} color="white" />
             </TouchableOpacity>
           </View>
@@ -662,56 +544,6 @@ const Header = () => {
           </TouchableOpacity>
         </Modal>
       )}
-
-      {/* Filter Selection Modal */}
-      {isFilterModalVisible && (
-        <Modal
-          transparent
-          animationType="fade"
-          onRequestClose={() => setIsFilterModalVisible(false)}
-        >
-          <TouchableOpacity
-            style={styles.pickerModalContainer} // Reuse picker modal styles
-            activeOpacity={1}
-            onPressOut={() => setIsFilterModalVisible(false)} // Close on backdrop press
-          >
-            <View
-              style={styles.pickerContent} // Reuse picker content styles
-              onStartShouldSetResponder={() => true} // Prevent backdrop press through content
-            >
-              <Text style={styles.pickerTitle}>Select Time Filter</Text>
-              {(["Daily", "Weekly", "Monthly"] as TimeFilter[]).map(
-                (filter) => (
-                  <TouchableOpacity
-                    key={filter}
-                    style={[
-                      styles.pickerItem, // Reuse picker item styles
-                      selectedFilter === filter && styles.pickerItemSelected, // Highlight selected
-                    ]}
-                    onPress={() => handleFilterSelect(filter)}
-                  >
-                    <Text
-                      style={[
-                        styles.pickerText, // Reuse picker text styles
-                        selectedFilter === filter && styles.pickerTextSelected, // Highlight selected text
-                      ]}
-                    >
-                      {filter}
-                    </Text>
-                  </TouchableOpacity>
-                )
-              )}
-              {/* Optional: Add a cancel button if needed */}
-              <TouchableOpacity
-                style={styles.pickerButton} // Reuse picker button style
-                onPress={() => setIsFilterModalVisible(false)}
-              >
-                <Text style={styles.pickerButtonText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      )}
     </View>
   );
 };
@@ -774,10 +606,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
   },
-  dateTextDisabled: {
-    // Style for disabled date text
-    color: "#cccccc", // Lighter color when disabled
-  },
   dateAndFilterContainer: {
     // Row containing date selector and filter icon
     flexDirection: "row",
@@ -824,7 +652,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
     flex: 1, // Distribute space equally
-    paddingHorizontal: 2, // Add slight padding to prevent text touching edges
   },
   totalsLoader: {
     marginVertical: 5, // Add some space for the loader
@@ -834,13 +661,15 @@ const styles = StyleSheet.create({
     flex: 1, // Take available space if needed
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 5, // Reduce padding to allow more text
+    paddingHorizontal: 10,
   },
   errorText: {
     // Styling for the error message text
     color: "#ffdddd", // Lighter red for visibility on dark background
     fontSize: 11, // Make error text slightly smaller
     textAlign: "center",
+    // Add margin if multiple lines look cramped
+    // marginVertical: 1,
   },
   rightIconsContainer: {
     // Container for icons on the right (search)

@@ -12,8 +12,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import Header from "@/components/headertopnav";
-import BottomNavigationBar from "@/components/botnavigationbar"; // Corrected import name
-import type { NavigationProp } from "@react-navigation/native"; // Import NavigationProp
+import BottomNavigationBar from "@/components/botnavigationbar";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons"; // Make sure Ionicons is imported
 import { useNavigation } from "expo-router";
 import {
@@ -27,7 +26,6 @@ import {
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged, User } from "firebase/auth"; // Import Firebase Auth
 import { app } from "../app/firebase"; // Adjust path if needed
-import type { RootStackParamList } from "./types/navigation"; // Adjust path if needed
 
 // --- Firestore Initialization ---
 const db = getFirestore(app);
@@ -87,8 +85,7 @@ const getIconSourceFromName = (
 
 // --- Component ---
 function Accounts() {
-  // Explicitly type the navigation prop
-  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const navigation = useNavigation();
 
   const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   // Account State
@@ -309,50 +306,37 @@ function Accounts() {
     // Render the list if data is available
     return (
       <>
-        {accountRecords.map((account) => (
-          // Wrap item in TouchableOpacity for editing
-          <TouchableOpacity
-            key={account.id}
-            style={styles.accountItem}
-            activeOpacity={0.7}
-            onPress={() =>
-              navigation.navigate("CreateAccounts", { accountId: account.id })
-            } // Navigate to edit
-          >
-            <>
-              <Image
-                source={getIconSourceFromName(account.iconName)}
-                style={styles.accountIconImage}
-                resizeMode="contain"
-              />
-              <View style={styles.accountDetails}>
-                <Text style={styles.accountTitle} numberOfLines={1}>
-                  {account.title}
+        {accountRecords.map((acrecord) => (
+          <View key={acrecord.id} style={styles.accountItem}>
+            <Image
+              source={getIconSourceFromName(acrecord.iconName)}
+              style={styles.accountIconImage}
+              resizeMode="contain"
+            />
+            <View style={styles.accountDetails}>
+              <Text style={styles.accountTitle} numberOfLines={1}>
+                {acrecord.title}
+              </Text>
+              <Text style={styles.accountBalance}>
+                {formatCurrency(acrecord.balance)}
+              </Text>
+              {acrecord.incomeAmount && acrecord.incomeFrequency && (
+                <Text style={styles.accountIncomeInfo}>
+                  Est. Income: {formatCurrency(acrecord.incomeAmount)} /{" "}
+                  {acrecord.incomeFrequency}
                 </Text>
-                <Text style={styles.accountBalance}>
-                  {formatCurrency(account.balance)}
-                </Text>
-                {account.incomeAmount && account.incomeFrequency && (
-                  <Text style={styles.accountIncomeInfo}>
-                    Est. Income: {formatCurrency(account.incomeAmount)} /{" "}
-                    {account.incomeFrequency}
-                  </Text>
-                )}
-              </View>
-              <View style={styles.actionButtons}>
-                <TouchableOpacity
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    handleDeleteAccount(account);
-                  }} // Prevent triggering edit on delete press
-                  style={styles.actionButton}
-                  hitSlop={{ top: 10, bottom: 10, left: 5, right: 5 }}
-                >
-                  <Ionicons name="trash-outline" size={22} color="#D32F2F" />
-                </TouchableOpacity>
-              </View>
-            </>
-          </TouchableOpacity>
+              )}
+            </View>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                onPress={() => handleDeleteAccount(acrecord)}
+                style={styles.actionButton}
+                hitSlop={{ top: 10, bottom: 10, left: 5, right: 5 }}
+              >
+                <Ionicons name="trash-outline" size={22} color="#D32F2F" />
+              </TouchableOpacity>
+            </View>
+          </View>
         ))}
       </>
     );

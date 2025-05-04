@@ -16,16 +16,14 @@ import {
   ActivityIndicator,
   ImageSourcePropType,
 } from "react-native";
-import { Stack, useRouter, useLocalSearchParams } from "expo-router"; // Import useLocalSearchParams
+import { Stack, useRouter } from "expo-router"; // Use useRouter from expo-router
 import {
-  getDoc, // Import getDoc
   getFirestore,
   collection,
   doc,
   runTransaction,
   serverTimestamp,
-  updateDoc, // Import updateDoc
-} from "firebase/firestore";
+} from "firebase/firestore"; // Import Firebase Auth
 import { getAuth, onAuthStateChanged, User } from "firebase/auth";
 import { app } from "../app/firebase"; // Adjust path if needed
 
@@ -59,20 +57,17 @@ type IncomeFrequency = "Daily" | "Weekly" | "Monthly";
 // --- Component ---
 const CreateAccountsScreen = () => {
   const router = useRouter();
-  const params = useLocalSearchParams<{ accountId?: string }>(); // Get navigation params
 
   const [currentUser, setCurrentUser] = useState<User | null>(null); // State for the current user
   // --- State ---
   const [name, setName] = useState("");
-  const [initialBalance, setInitialBalance] = useState(""); // Represents current balance in edit mode
+  const [initialBalance, setInitialBalance] = useState("");
   const [selectedIconOption, setSelectedIconOption] =
     useState<AccountImageOption | null>(null);
   const [incomeAmount, setIncomeAmount] = useState("");
   const [selectedIncomeFrequency, setSelectedIncomeFrequency] =
     useState<IncomeFrequency | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isLoadingData, setIsLoadingData] = useState(false); // State for loading existing data
-  const isEditMode = !!params.accountId; // Determine if we are editing
 
   // Validation State
   const [nameError, setNameError] = useState<string | null>(null);
@@ -88,70 +83,13 @@ const CreateAccountsScreen = () => {
         console.log("CreateAccounts: No user logged in.");
         Alert.alert(
           "Login Required",
-          "You must be logged in to manage accounts."
+          "You must be logged in to create accounts."
         );
         router.replace("/"); // Redirect to login
       }
     });
     return () => unsubscribeAuth();
   }, [router]);
-
-  // --- Fetch Existing Account Data if Editing ---
-  useEffect(() => {
-    if (isEditMode && currentUser && params.accountId) {
-      setIsLoadingData(true);
-      const accountDocRef = doc(
-        db,
-        "Accounts",
-        currentUser.uid,
-        "accounts",
-        params.accountId
-      );
-
-      getDoc(accountDocRef)
-        .then((docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            setName(data.title || "");
-            // Set the balance field (non-editable in this version)
-            setInitialBalance(String(data.balance ?? 0));
-            setIncomeAmount(data.incomeAmount ? String(data.incomeAmount) : "");
-            setSelectedIncomeFrequency(data.incomeFrequency || null);
-
-            // Find and set the selected icon
-            const foundIcon = accountIconOptions.find(
-              (opt) => opt.name === data.iconName
-            );
-            setSelectedIconOption(foundIcon || null);
-
-            console.log("Editing account:", data.title);
-          } else {
-            console.error(
-              "Account document not found for editing:",
-              params.accountId
-            );
-            Alert.alert("Error", "Could not find the account data to edit.");
-            router.back(); // Go back if account not found
-          }
-        })
-        .catch((error) => {
-          console.error("Error fetching account for editing:", error);
-          Alert.alert("Error", "Failed to load account data for editing.");
-          router.back();
-        })
-        .finally(() => {
-          setIsLoadingData(false);
-        });
-    } else {
-      // Reset form if creating new or user changes
-      setName("");
-      setInitialBalance("");
-      setSelectedIconOption(null);
-      setIncomeAmount("");
-      setSelectedIncomeFrequency(null);
-    }
-  }, [isEditMode, currentUser, params.accountId, router]); // Add dependencies
-
   // --- Handlers ---
   const handleNameChange = (text: string) => {
     setName(text);
@@ -219,24 +157,13 @@ const CreateAccountsScreen = () => {
       setNameError(null);
     }
 
-    // Only validate initial balance strictly when *creating*
-    if (!isEditMode) {
-      if (initialBalance === "" || isNaN(balanceValue)) {
-        setBalanceError(
-          "Initial balance must be a valid number (e.g., 0, 100.50)."
-        );
-        isValid = false;
-      } else {
-        setBalanceError(null);
-      }
+    if (initialBalance === "" || isNaN(balanceValue)) {
+      setBalanceError(
+        "Initial balance must be a valid number (e.g., 0, 100.50)."
+      );
+      isValid = false;
     } else {
-      // In edit mode, just ensure it's a number if not empty (it's non-editable anyway)
-      if (initialBalance !== "" && isNaN(balanceValue)) {
-        setBalanceError("Balance must be a number."); // Should not happen if non-editable
-        isValid = false;
-      } else {
-        setBalanceError(null);
-      }
+      setBalanceError(null);
     }
 
     if (!selectedIconOption) {
@@ -286,96 +213,74 @@ const CreateAccountsScreen = () => {
     setIsSaving(true);
 
     const trimmedName = name.trim();
-    // Use currentBalance for both create and update logic, but it's only set initially for create
-    const currentBalance = parseFloat(initialBalance);
+    const newBalance = parseFloat(initialBalance); // Already validated as number
     const incomeNum = incomeAmount ? parseFloat(incomeAmount) : null; // Parse income amount
 
-    const accountDataToSave = {
+    const accountData = {
       title: trimmedName,
-      balance: currentBalance, // Use the balance value (non-editable in edit)
+      balance: newBalance,
       iconName: selectedIconOption!.name, // Non-null assertion safe due to validation
       incomeAmount: incomeNum && incomeNum > 0 ? incomeNum : null, // Store null if 0 or empty
       incomeFrequency:
         incomeNum && incomeNum > 0 ? selectedIncomeFrequency : null, // Store null if no income amount
     };
 
+    // --- Firestore Transaction ---
     try {
-      if (isEditMode && params.accountId) {
-        // --- Update Existing Account ---
-        const accountDocRef = doc(
+      await runTransaction(db, async (transaction) => {
+        const accountsCollectionRef = collection(
           db,
           "Accounts",
-          currentUser.uid,
-          "accounts",
-          params.accountId
+          currentUser.uid, // Use actual user UID
+          "accounts"
         );
-        // Update only the fields that can change (exclude balance if non-editable)
-        const { balance, ...updateData } = accountDataToSave; // Exclude balance from updateData
-        await updateDoc(accountDocRef, updateData); // Update without balance
-        Alert.alert(
-          "Success",
-          `Account "${accountDataToSave.title}" updated successfully.`
+        const transactionsCollectionRef = collection(
+          db,
+          "Accounts",
+          currentUser.uid, // Use actual user UID
+          "transactions"
         );
-        router.back(); // Go back after editing
-      } else {
-        // --- Create New Account (using Transaction) ---
-        await runTransaction(db, async (transaction) => {
-          const accountsCollectionRef = collection(
-            db,
-            "Accounts",
-            currentUser.uid, // Use actual user UID
-            "accounts"
-          );
-          const transactionsCollectionRef = collection(
-            db,
-            "Accounts",
-            currentUser.uid, // Use actual user UID
-            "transactions"
-          );
 
-          // Create a new document reference for the account *within* the transaction
-          const accountDocRef = doc(accountsCollectionRef);
-          // Set the account data using the transaction object
-          transaction.set(accountDocRef, accountDataToSave);
+        // Create a new document reference for the account *within* the transaction
+        const accountDocRef = doc(accountsCollectionRef);
+        // Set the account data using the transaction object
+        transaction.set(accountDocRef, accountData);
 
-          // Create initial balance transaction only if balance is not zero
-          if (currentBalance !== 0) {
-            const balanceChange = currentBalance;
-            const transactionType = balanceChange >= 0 ? "Income" : "Expenses";
-            const transactionCategory = "Initial Balance";
-            const transactionIcon =
-              balanceChange >= 0 ? "bank-plus" : "bank-minus";
+        // Create initial balance transaction only if balance is not zero
+        if (newBalance !== 0) {
+          const balanceChange = newBalance;
+          const transactionType = balanceChange >= 0 ? "Income" : "Expenses";
+          const transactionCategory = "Initial Balance";
+          const transactionIcon =
+            balanceChange >= 0 ? "bank-plus" : "bank-minus";
 
-            // Create a new document reference for the transaction *within* the transaction
-            const newTransactionRef = doc(transactionsCollectionRef);
-            const transactionData = {
-              type: transactionType,
-              categoryName: transactionCategory,
-              categoryIcon: transactionIcon,
-              amount: Math.abs(balanceChange),
-              accountId: accountDocRef.id, // Use the ID generated within the transaction
-              accountName: accountDataToSave.title,
-              description: "Initial account balance", // Add description
-              timestamp: serverTimestamp(),
-            };
-            // Set the transaction data using the transaction object
-            transaction.set(newTransactionRef, transactionData);
-          }
-        });
+          // Create a new document reference for the transaction *within* the transaction
+          const newTransactionRef = doc(transactionsCollectionRef);
+          const transactionData = {
+            type: transactionType,
+            categoryName: transactionCategory,
+            categoryIcon: transactionIcon,
+            amount: Math.abs(balanceChange),
+            accountId: accountDocRef.id, // Use the ID generated within the transaction
+            accountName: accountData.title,
+            description: "Initial account balance", // Add description
+            timestamp: serverTimestamp(),
+          };
+          // Set the transaction data using the transaction object
+          transaction.set(newTransactionRef, transactionData);
+        }
+      });
 
-        Alert.alert(
-          "Success",
-          `Account "${accountDataToSave.title}" added successfully.`
-        );
-        router.replace("/Accounts"); // Navigate back to Accounts list after creating
-      }
+      Alert.alert(
+        "Success",
+        `Account "${accountData.title}" added successfully.`
+      );
+      router.replace("/Accounts"); // Navigate back to Accounts list
     } catch (error: any) {
-      console.error("Account save/update failed: ", error);
+      console.error("Account save transaction failed: ", error);
       Alert.alert(
         "Save Error",
-        `Could not ${isEditMode ? "update" : "save"} the account. ${
-          error.message || "Please try again."
-        }`
+        `Could not save the account. ${error.message || "Please try again."}`
       );
     } finally {
       setIsSaving(false);
@@ -391,11 +296,14 @@ const CreateAccountsScreen = () => {
       {/* Stack Screen Configuration */}
       <Stack.Screen
         options={{
-          title: isEditMode ? "Edit Account" : "Create New Account", // Dynamic title
+          title: "Create New Account",
           headerTitleAlign: "center",
           headerStyle: { backgroundColor: "#006400" }, // Dark green header
           headerTintColor: "#fff", // White text/icons in header
           headerTitleStyle: { fontWeight: "bold" },
+          // Optionally add Cancel/Save buttons in header if preferred over bottom buttons
+          // headerLeft: () => (...),
+          // headerRight: () => (...),
         }}
       />
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -404,13 +312,6 @@ const CreateAccountsScreen = () => {
           contentContainerStyle={{ flexGrow: 1 }} // Ensure content can grow
           keyboardShouldPersistTaps="handled"
         >
-          {/* Show loader while fetching existing data */}
-          {isLoadingData && (
-            <View style={styles.loadingOverlay}>
-              <ActivityIndicator size="large" color="#006400" />
-              <Text style={styles.loadingText}>Loading Account Data...</Text>
-            </View>
-          )}
           <View style={styles.formContainer}>
             {/* Account Name */}
             <View style={styles.inputGroup}>
@@ -422,30 +323,22 @@ const CreateAccountsScreen = () => {
                 onChangeText={handleNameChange}
                 placeholderTextColor="#999"
                 maxLength={50} // Limit name length
-                editable={!isLoadingData && !isSaving} // Disable while loading/saving
               />
               {nameError && (
                 <Text style={styles.validationHint}>{nameError}</Text>
               )}
             </View>
 
-            {/* Initial/Current Balance */}
+            {/* Initial Balance */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>
-                {isEditMode ? "Current Balance" : "Initial Balance *"}
-              </Text>
+              <Text style={styles.inputLabel}>Initial Balance *</Text>
               <TextInput
-                style={[
-                  styles.input,
-                  balanceError && { borderColor: "red" },
-                  isEditMode && styles.inputDisabled, // Style for non-editable
-                ]}
+                style={[styles.input, balanceError && { borderColor: "red" }]}
                 placeholder="0.00"
                 keyboardType="numeric"
                 value={initialBalance}
                 onChangeText={handleBalanceChange}
                 placeholderTextColor="#999"
-                editable={!isEditMode && !isLoadingData && !isSaving} // Make balance non-editable in edit mode
               />
               {balanceError && (
                 <Text style={styles.validationHint}>{balanceError}</Text>
@@ -469,7 +362,6 @@ const CreateAccountsScreen = () => {
                         styles.iconSelected,
                     ]}
                     onPress={() => handleIconSelect(option)}
-                    disabled={isLoadingData || isSaving} // Disable while loading/saving
                   >
                     <Image
                       source={option.source}
@@ -500,7 +392,6 @@ const CreateAccountsScreen = () => {
                   value={incomeAmount}
                   onChangeText={handleIncomeAmountChange}
                   placeholderTextColor="#999"
-                  editable={!isLoadingData && !isSaving} // Disable while loading/saving
                 />
               </View>
 
@@ -516,18 +407,12 @@ const CreateAccountsScreen = () => {
                           selectedIncomeFrequency === freq &&
                             styles.frequencyButtonSelected,
                           // Disable if no income amount is entered or if it's zero/invalid
-                          (!incomeAmount ||
-                            parseFloat(incomeAmount) <= 0 ||
-                            isLoadingData ||
-                            isSaving) &&
+                          (!incomeAmount || parseFloat(incomeAmount) <= 0) &&
                             styles.frequencyButtonDisabled,
                         ]}
                         onPress={() => handleFrequencySelect(freq)}
                         disabled={
-                          !incomeAmount ||
-                          parseFloat(incomeAmount) <= 0 ||
-                          isLoadingData ||
-                          isSaving
+                          !incomeAmount || parseFloat(incomeAmount) <= 0
                         }
                       >
                         <Text
@@ -535,10 +420,7 @@ const CreateAccountsScreen = () => {
                             styles.frequencyButtonText,
                             selectedIncomeFrequency === freq &&
                               styles.frequencyButtonTextSelected,
-                            (!incomeAmount ||
-                              parseFloat(incomeAmount) <= 0 ||
-                              isLoadingData ||
-                              isSaving) &&
+                            (!incomeAmount || parseFloat(incomeAmount) <= 0) &&
                               styles.frequencyButtonDisabledText,
                           ]}
                         >
@@ -556,7 +438,7 @@ const CreateAccountsScreen = () => {
               <TouchableOpacity
                 style={[styles.actionButton, styles.cancelButton]}
                 onPress={handleCancel}
-                disabled={isSaving || isLoadingData} // Disable cancel while saving/loading
+                disabled={isSaving || !currentUser} // Disable cancel while saving or if no user
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
@@ -564,18 +446,15 @@ const CreateAccountsScreen = () => {
                 style={[
                   styles.actionButton,
                   styles.saveButton,
-                  (isSaving || isLoadingData || !currentUser) &&
-                    styles.actionButtonDisabled, // Style when disabled/loading/no user
+                  (isSaving || !currentUser) && styles.actionButtonDisabled, // Style when disabled or no user
                 ]}
                 onPress={handleSaveAccount}
-                disabled={isSaving || isLoadingData || !currentUser} // Prevent multiple clicks or if loading/no user
+                disabled={isSaving || !currentUser} // Prevent multiple clicks or if no user
               >
                 {isSaving ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.saveButtonText}>
-                    {isEditMode ? "Update Account" : "Save Account"}
-                  </Text>
+                  <Text style={styles.saveButtonText}>Save Account</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -594,19 +473,6 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flex: 1, // Take available space
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject, // Cover the screen
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 10, // Ensure it's on top
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: "#333",
-    fontWeight: "500",
   },
   formContainer: {
     padding: 25,
@@ -633,11 +499,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: "#fdfdfd", // Slightly off-white input background
     color: "#333", // Dark text color
-  },
-  inputDisabled: {
-    // Style for non-editable inputs
-    backgroundColor: "#e9ecef", // Light grey background
-    color: "#6c757d", // Muted text color
   },
   iconScrollView: {
     paddingTop: 5,
